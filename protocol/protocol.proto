@@ -1,0 +1,50 @@
+syntax = "proto3";
+package protocol;
+
+service server {
+    rpc Handle (Request) returns (Respond) {}
+}
+
+// The request message containing the user's name.
+message Request {
+    fixed32 version  = 1;               ///< 协议版本号
+    fixed32 servant  = 2;               ///<业务模块内部具体接
+    fixed32 seq      = 3;               ///< 序列号
+    fixed32 uid      = 4;
+    bytes   body     = 5;
+}
+
+// The response message containing the greetings
+message Respond {
+    bytes   body      = 1;
+    bytes extend      = 2;  
+}
+
+// The request message containing the user's name.
+message MsgHead {
+    fixed32 body_len    = 1;             ///< 消息体长度
+    fixed32 version     = 2;               ///< 协议版本号
+    fixed32 app         = 3;               ///<应用名称
+    fixed32 server      = 4;               ///<应用内具体业务模块
+    fixed32 servant     = 5;               ///<业务模块内部具体接
+    fixed32 seq         = 6;               ///< 序列号
+    fixed32 route_id    = 7;              ///<负载均衡路由字段
+    fixed32 encrypt     = 8;              ///<加密方式，0:oaep(rsa v2),1:pkcs1(rsa v1.5)
+}
+
+message MsgBody
+{
+    bytes body    = 1; ///< 消息体主体
+    bytes extend  = 2;    
+}
+
+message errorinfo
+{
+	fixed32 error_code	=1;//错误码
+	bytes error_info	=2;//错误描述信息
+}
+
+message error_rsp
+{
+	errorinfo errinfo = 1;
+}

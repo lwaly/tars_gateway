@@ -1,0 +1,38 @@
+[http]
+    addr=192.168.89.13:18080
+    maxConn=10000
+[device]
+    addr=192.168.89.13:18180
+    maxConn=10000
+[content]
+    addr=192.168.89.13:18280
+    maxConn=10000
+[tcp]
+    machine=1
+    addr=192.168.89.13:8080
+    device_addr=192.168.89.13:8080
+    timeout=2
+    heartbeat=100
+    maxConn=10000
+    exceptionMsg=
+[tars]
+    ip=192.168.89.66
+    port=17890
+    refreshInterval=120
+[app]
+    test=1 2 User
+[cmd]
+    addr=192.168.89.66:18081
+[log]
+    path=./
+    level=0
+[token]
+    secret=test
+[queue]
+    addr=nats://192.168.89.66:4222
+    cluster=test
+    client=gateway
+    group_object=gateway gateway
+    durable=gateway
+    start_way=deliverLast   #startSeq or deliverLast or deliverAll or startDelta
+    gateway_object=gateway
