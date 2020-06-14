@@ -1,17 +1,21 @@
 package proxy_tars
 
 import (
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/lwaly/tars_gateway/common"
+	. "github.com/lwaly/tars_gateway/common"
 	"github.com/lwaly/tars_gateway/protocol"
+	"github.com/lwaly/tars_gateway/util"
 
 	"github.com/TarsCloud/TarsGo/tars"
 	"github.com/gofrs/flock"
 	"github.com/golang/protobuf/proto"
+	"golang.org/sync/syncmap"
 )
 
 const BITS = 2048
@@ -19,26 +23,33 @@ const CMD_LOGOUT = 1999
 const CMD_HEART uint32 = 101
 
 type StTarsTcpProxy struct {
+	privateKey *rsa.PrivateKey
+	uid        uint64
+	reader     chan []byte
+	mapServer  syncmap.Map
+	isExit     int
 }
 
 var mapApp map[uint32]string
 var mapServer map[string]map[uint32]string
-var addr string
 var comm *tars.Communicator
 var mapTcpEndpoint map[string]*tars.EndpointManager
-var mapExceptionMsg map[uint32]uint32
-var maxExceptionMsg int
-var connCount int32
+
+var mapUser syncmap.Map
 
 var fileLock *flock.Flock
+var secret = "test"
 
-func (info *StTarsTcpProxy) InitProxy() {
+func init() {
 	mapTcpEndpoint = make(map[string]*tars.EndpointManager)
+
 	mapApp = make(map[uint32]string)
 	mapServer = make(map[string]map[uint32]string)
-	mapExceptionMsg = make(map[uint32]uint32)
+	mapUser.Store(uint64(0), &StTarsTcpProxy{reader: make(chan []byte)})
 
 	fileLock = flock.New("/var/lock/gateway-lock.lock")
+
+	secret, _ = common.Conf.GetValue("token", "secret")
 
 	mapTemp, err := common.Conf.GetSection("app")
 	if nil != err {
@@ -104,6 +115,10 @@ func (info *StTarsTcpProxy) InitProxy() {
 	comm.SetLocator(addr)
 }
 
+func (info *StTarsTcpProxy) InitProxy() {
+	util.InitQueue(util.HandlerQueueFunc(HandleQueue))
+}
+
 func (info *StTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut interface{}, err error) {
 	var ok bool
 	reqOutTemp, ok := reqTemp.(protocol.MsgHead)
@@ -131,28 +146,35 @@ func (info *StTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 		}
 	}
 
-	app, ok := mapApp[reqOutTemp.GetApp()]
-	if !ok {
-		common.Errorf("fail to get app name ", reqOutTemp.GetApp())
-		err = errors.New("fail to get app name")
+	if (1 == reqOutTemp.GetEncrypt()) && (nil != info.privateKey) && (0 < reqOutTemp.GetBodyLen()) {
+		if rspBody.Body, err = util.Decrypt(rspBody.Body, info.privateKey); nil != err {
+			common.Errorf("fail to Decrypt msg")
+			err = errors.New(ErrUnknown)
+			return
+		}
+	} else if (2 == reqOutTemp.GetEncrypt()) && (nil != info.privateKey) && (0 < reqOutTemp.GetBodyLen()) {
+		if rspBody.Body, err = util.DecryptPkcs(rspBody.Body, info.privateKey); nil != err {
+			common.Errorf("fail to Decrypt msg")
+			err = errors.New(ErrUnknown)
+			return
+		}
+	} else if (3 == reqOutTemp.GetEncrypt()) && (reqOutTemp.GetBodyLen() > 190) && (nil != info.privateKey) {
+		rspBody.Body = rspBody.GetExtend()
+	} else if nil == info.privateKey || 0 == reqOutTemp.GetBodyLen() {
+		common.Infof("do not verify or empty body.%d", reqOutTemp.GetBodyLen())
+	} else {
+		common.Errorf("fail to convert head")
+		err = errors.New("fail to convert head")
 		return
 	}
 
-	mapAppS, ok := mapServer[app]
-	if !ok {
-		common.Errorf("fail to get app name ", reqOutTemp.GetApp())
-		err = errors.New("fail to get app name ")
+	obj, err := info.objFind(&reqOutTemp)
+
+	if nil != err {
+		common.Errorf("fail to convert head")
+		err = errors.New("fail to convert head")
 		return
 	}
-
-	mapSt, ok := mapAppS[reqOutTemp.GetServer()]
-	if !ok {
-		common.Errorf("fail to get app name ", reqOutTemp.GetApp())
-		err = errors.New("fail to get app name")
-		return
-	}
-
-	obj := fmt.Sprintf("%s.%s.%sObj", app, mapSt, mapSt)
 
 	var manager *tars.EndpointManager
 	manager, ok = mapTcpEndpoint[obj]
@@ -172,10 +194,24 @@ func (info *StTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 
 	point := manager.GetNextEndpoint()
 	if nil != point {
-
-		common.Infof("first.%d", key)
-		appObj := new(protocol.Server)
-		comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
+		var appObj *protocol.Server
+		addr := fmt.Sprintf("%d%d", IPString2Long(point.Host), point.Port)
+		appObjTemp, ok := info.mapServer.Load(addr)
+		if !ok {
+			common.Infof("first.%d", key)
+			appObj = new(protocol.Server)
+			comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
+			info.mapServer.Store(addr, appObj)
+		} else {
+			appObj, ok = appObjTemp.(*protocol.Server)
+			if !ok {
+				common.Infof("first.%d", key)
+				info.mapServer.Delete(addr)
+				appObj = new(protocol.Server)
+				comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
+				info.mapServer.Store(addr, appObj)
+			}
+		}
 
 		input := protocol.Request{Version: reqOutTemp.GetVersion(), Servant: reqOutTemp.GetServant(), Seq: reqOutTemp.GetSeq(), Uid: 1, Body: rspBody.GetBody()}
 		outputTemp, err := appObj.Handle(input)
@@ -185,6 +221,7 @@ func (info *StTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 			err = errors.New(common.ErrUnknown)
 			return outputTemp, reqOutTemp, err
 		}
+		info.verify(&outputTemp)
 		output = outputTemp
 		reqOut = reqOutTemp
 	}
@@ -231,6 +268,95 @@ func (info *StTarsTcpProxy) HandleRsp(output, reqOut interface{}) (outHeadRsp []
 	return
 }
 
-func (info *StTarsTcpProxy) Verify() error {
-	return nil
+func (info *StTarsTcpProxy) Verify() (err error) {
+	return
+}
+
+func (info *StTarsTcpProxy) IsExit() int {
+	return info.isExit
+}
+
+func (info *StTarsTcpProxy) verify(output *protocol.Respond) (err error) {
+	//扩展字段有值，认为是客户端重新认证，更换秘钥
+	if 0 != len(output.GetExtend()) {
+		if claims, err := util.TokenAuth(string(output.GetExtend()), secret); nil != err {
+			common.Errorf("authentication token fail.%v.%v.%v", string(output.GetExtend()), secret, err)
+			return err
+		} else {
+			if tempV, ok := mapUser.Load(claims.Userid); ok {
+				if v, ok := tempV.(*StTarsTcpProxy); ok {
+					if v.uid != info.uid && 0 != info.uid {
+						mapUser.Delete(info.uid)
+					}
+					info.uid = v.uid
+					mapUser.Store(info.uid, info)
+				}
+			}
+		}
+
+		if info.privateKey, err = util.GenerateKey(BITS); err != nil {
+			common.Errorf("Cannot generate RSA key.%v", err)
+			return
+		}
+
+		if err, output.Extend = util.DumpPublicKeyBytes(&info.privateKey.PublicKey); err != nil {
+			common.Errorf("Cannot generate RSA key.%v", err)
+			return
+		}
+	}
+
+	return
+}
+
+func (info *StTarsTcpProxy) objFind(reqOut *protocol.MsgHead) (strObj string, err error) {
+	app, ok := mapApp[reqOut.GetApp()]
+	if !ok {
+		common.Errorf("fail to get app name ", reqOut.GetApp())
+		err = errors.New("fail to get app name")
+		return
+	}
+
+	mapAppS, ok := mapServer[app]
+	if !ok {
+		common.Errorf("fail to get app name ", reqOut.GetApp())
+		err = errors.New("fail to get app name ")
+		return
+	}
+
+	mapSt, ok := mapAppS[reqOut.GetServer()]
+	if !ok {
+		common.Errorf("fail to get app name ", reqOut.GetApp())
+		err = errors.New("fail to get app name")
+		return
+	}
+
+	return fmt.Sprintf("%s.%s.%sObj", app, mapSt, mapSt), nil
+}
+
+func (info *StTarsTcpProxy) Close() {
+	_, ok := mapUser.Load(info.uid)
+	if ok {
+		mapUser.Delete(info.uid)
+	}
+}
+
+func HandleQueue(b []byte) {
+	req := protocol.LoginNotifyReq{}
+	err := proto.Unmarshal(b, &req)
+
+	if nil != err {
+		common.Errorf("fail Unmarshal msg.%v", err)
+		return
+	} else {
+		tempV, ok := mapUser.Load(req.GetUid())
+		if ok {
+			v, ok := tempV.(*StTarsTcpProxy)
+			if ok {
+				common.Infof("user exit.uid=%d", req.GetUid())
+				v.isExit = 1
+				return
+			}
+		}
+	}
+	return
 }

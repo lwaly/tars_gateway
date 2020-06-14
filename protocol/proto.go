@@ -41,14 +41,14 @@ type ProtobufCodec struct {
 	IsClose   bool
 }
 
-func (sc *ProtobufCodec) Receive() (interface{}, interface{}, error) {
+func (sc *ProtobufCodec) Receive() (interface{}, interface{}, error, int) {
 	var headLength [35]byte
 HEAD_LENGTH:
 	sc.conn.SetReadDeadline(time.Now().Add(sc.timeOut * time.Second))
 	n, err := io.ReadFull(sc.conn, headLength[:])
 
 	if sc.IsClose {
-		return nil, nil, nil
+		return nil, nil, nil, 0
 	}
 	//检测心跳超时是否有消息到来
 	if (0 == n) && (io.EOF.Error() != err.Error()) {
@@ -56,7 +56,7 @@ HEAD_LENGTH:
 			goto HEAD_LENGTH
 		} else {
 			common.Errorf("err:%v %v %v", sc.timeOut, sc.heartbeat, err)
-			return nil, nil, errors.New(TIMEOUT)
+			return nil, nil, errors.New(TIMEOUT), 0
 		}
 	}
 
@@ -66,7 +66,7 @@ HEAD_LENGTH:
 		} else {
 			common.Infof("err:%v %d", err, n)
 		}
-		return nil, nil, err
+		return nil, nil, err, 0
 	}
 
 	sc.endtime = time.Now().Unix()
@@ -74,12 +74,12 @@ HEAD_LENGTH:
 
 	if err = proto.Unmarshal(headLength[:], &req); err != nil {
 		common.Errorf("err:%v", err)
-		return nil, nil, err
+		return nil, nil, err, 0
 	}
 
 	if 0 == req.GetBodyLen() {
 		sc.endtime = time.Now().Unix()
-		return nil, req, nil
+		return nil, req, nil, len(headLength)
 	}
 
 	var head [5]byte
@@ -88,7 +88,7 @@ HEAD:
 	n, err = io.ReadFull(sc.conn, head[:])
 
 	if sc.IsClose {
-		return nil, nil, nil
+		return nil, nil, nil, 0
 	}
 	//检测心跳超时是否有消息到来
 	if (0 == n) && (io.EOF.Error() != err.Error()) {
@@ -96,20 +96,20 @@ HEAD:
 			goto HEAD
 		} else {
 			common.Errorf("err:%v", err)
-			return nil, nil, errors.New(TIMEOUT)
+			return nil, nil, errors.New(TIMEOUT), 0
 		}
 	}
 
 	if 0 == n && err != nil {
 		common.Errorf("err:%v %d", err, n)
-		return nil, nil, err
+		return nil, nil, err, 0
 	}
 
 	sc.endtime = time.Now().Unix()
 
 	if err = proto.Unmarshal(append(headLength[:], head[:]...), &req); err != nil {
 		common.Errorf("err:%v", err)
-		return nil, nil, err
+		return nil, nil, err, 0
 	}
 
 	buf := make([]byte, req.GetBodyLen())
@@ -118,7 +118,7 @@ BODY:
 	n, err = io.ReadFull(sc.conn, buf)
 
 	if sc.IsClose {
-		return nil, nil, nil
+		return nil, nil, nil, 0
 	}
 
 	//检测心跳超时是否有消息到来
@@ -127,23 +127,23 @@ BODY:
 			goto BODY
 		} else {
 			common.Errorf("err:%v", err)
-			return nil, nil, errors.New("connect timeout")
+			return nil, nil, errors.New("connect timeout"), 0
 		}
 	}
 
 	if err != nil {
 		common.Errorf("err:%v %d", err, n)
-		return nil, nil, err
+		return nil, nil, err, 0
 	}
 
 	var body MsgBody
 	if err = proto.Unmarshal(buf[:], &body); err != nil {
 		common.Errorf("err:%v", err)
-		return nil, nil, err
+		return nil, nil, err, 0
 	}
 
 	sc.endtime = time.Now().Unix()
-	return body, req, nil
+	return body, req, nil, len(headLength) + len(head) + len(buf)
 }
 
 func (sc *ProtobufCodec) Send(msg interface{}) error {

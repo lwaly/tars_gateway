@@ -1,4 +1,4 @@
-package proxy
+package util
 
 import (
 	"bytes"
@@ -13,6 +13,35 @@ import (
 	"io/ioutil"
 	"os"
 )
+
+func DecryptPkcsByBytes(ciphertext, privatekey []byte) (decryptedtext []byte, err error) {
+	var tempPrivatekey *rsa.PrivateKey
+	if tempPrivatekey, err = LoadPrivateKeyBytes(privatekey); nil != err {
+		return
+	}
+
+	decryptedtext, err = rsa.DecryptPKCS1v15(nil, tempPrivatekey, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("RSA DecryptPkcs failed, error=%s\n", err.Error())
+	}
+
+	return decryptedtext, err
+}
+
+func DecryptByBytes(ciphertext, privatekey []byte) (decryptedtext []byte, err error) {
+	var tempPrivatekey *rsa.PrivateKey
+	if tempPrivatekey, err = LoadPrivateKeyBytes(privatekey); nil != err {
+		return
+	}
+
+	sha256hash := sha256.New()
+	decryptedtext, err = rsa.DecryptOAEP(sha256hash, rand.Reader, tempPrivatekey, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("RSA DecryptOAEP failed, error=%s\n", err.Error())
+	}
+
+	return decryptedtext, err
+}
 
 // decrypt
 func Decrypt(ciphertext []byte, privatekey *rsa.PrivateKey) ([]byte, error) {
@@ -206,4 +235,33 @@ func DumpPublicKeyBytes(publickey *rsa.PublicKey) (err error, b []byte) {
 		return err, nil
 	}
 	return err, reader.Bytes()
+}
+
+func LoadPrivateKeyBytes(b []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode(b)
+	if block == nil {
+		return nil, errors.New("Private key error")
+	}
+
+	pubkeyinterface, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return pubkeyinterface, nil
+}
+
+func LoadPublicKeyBytes(b []byte) (*rsa.PublicKey, error) {
+	block, _ := pem.Decode(b)
+	if block == nil {
+		return nil, errors.New("public key error")
+	}
+
+	pubkeyinterface, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	publickey := pubkeyinterface.(*rsa.PublicKey)
+	return publickey, nil
 }

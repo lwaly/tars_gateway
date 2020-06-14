@@ -28,7 +28,7 @@ message MsgHead {
     fixed32 server      = 4;               ///<应用内具体业务模块
     fixed32 servant     = 5;               ///<业务模块内部具体接
     fixed32 seq         = 6;               ///< 序列号
-    fixed32 route_id    = 7;              ///<负载均衡路由字段
+    fixed64 route_id    = 7;              ///<负载均衡路由字段
     fixed32 encrypt     = 8;              ///<加密方式，0:oaep(rsa v2),1:pkcs1(rsa v1.5)
 }
 
@@ -40,11 +40,22 @@ message MsgBody
 
 message errorinfo
 {
-	fixed32 error_code	=1;//错误码
+	uint32 error_code	=1;//错误码
 	bytes error_info	=2;//错误描述信息
 }
 
 message error_rsp
 {
 	errorinfo errinfo = 1;
+}
+
+enum ECmd //枚举消息类型
+{
+    UNKNOWN = 0;
+    E_LOGIN_NOTIFY_REQ          = 601; //proto3版本中，首成员必须为0，成员不应有相同的值
+}
+
+message login_notify_req
+{
+    uint64 uid         = 1; // 用户id
 }

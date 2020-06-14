@@ -12,7 +12,8 @@ type Controller interface {
 	Verify() error
 	HandleReq(body, reqTemp interface{}) (output, reqOut interface{}, err error)
 	HandleRsp(output, reqOut interface{}) (outHeadRsp []byte, err error)
-	//Notice() (outHeadRsp []byte, err error)
+	IsExit() int
+	Close()
 }
 
 func InitProxy() {
@@ -31,26 +32,22 @@ func InitProxy() {
 	}
 
 	common.LevelSet(level)
-	InitQueue()
 }
 
 func ProxyTcpHandle(session *Session) {
 	defer session.Close()
 	var wg sync.WaitGroup
-	var err error
+	//var err error
 	var uid int64
 	// var server uint32
 	// var servant uint32
-	isret := 0
-	// var privatekey *rsa.PrivateKey
-	// token := ""
-	// tokenRet := &protocol.LoginNotifyReq{}
+	// isret := 0
 
-	if err = session.controller.Verify(); nil != err {
-		common.Errorf("error verify user.%d", uid)
-		isret = 2
-		return
-	}
+	// if err = session.controller.Verify(); nil != err {
+	// 	common.Errorf("error verify user.%d", uid)
+	// 	isret = 2
+	// 	return
+	// }
 
 	// ticker := time.NewTicker(time.Millisecond * 500)
 
@@ -95,18 +92,17 @@ func ProxyTcpHandle(session *Session) {
 	// }()
 
 	for {
-		body, reqTemp, err := session.Receive()
-		if 0 != isret {
-			common.Infof("connect close.uid=%d", uid)
+		body, reqTemp, err, n := session.Receive()
+		if 0 != session.controller.IsExit() {
+			common.Infof("connect close.uid=%d.len=%d", uid, n)
+			session.NoticeClose()
 			break
 		}
 		if err != nil && "EOF" != err.Error() {
 			common.Errorf("fail to get msg.%s", err.Error())
-			isret = 1
 			break
 		} else if err != nil && "EOF" == err.Error() {
 			common.Infof("msg end.")
-			isret = 1
 			break
 		}
 

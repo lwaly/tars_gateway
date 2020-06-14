@@ -1,6 +1,7 @@
-package proxy
+package util
 
 import (
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -21,13 +22,21 @@ type stQueue struct {
 	durable        string
 	start_way      string
 	gateway_object string
+	handlerQueue   HandlerQueueFunc
+	machine        int64
+	gConn          stan.Conn
+	startOpt       stan.SubscriptionOption
 }
 
-var gConn stan.Conn
 var queue stQueue
-var startOpt stan.SubscriptionOption
 
-func InitQueue() {
+type HandlerQueueFunc func(b []byte)
+
+func InitQueue(handlerQueue HandlerQueueFunc) {
+	if nil == handlerQueue {
+		common.Errorf("handlerQueue nil.")
+		return
+	}
 	queue.addr, _ = common.Conf.GetValue("queue", "addr")
 	queue.cluster, _ = common.Conf.GetValue("queue", "cluster")
 	queue.client, _ = common.Conf.GetValue("queue", "client")
@@ -36,24 +45,36 @@ func InitQueue() {
 	queue.start_way, _ = common.Conf.GetValue("queue", "start_way")
 	queue.gateway_object, _ = common.Conf.GetValue("queue", "gateway_object")
 
+	machineTemp, _ := common.Conf.GetValue("queue", "machine")
+	if "" == machineTemp {
+		queue.machine = common.InetAton(net.ParseIP(common.GetExternal()))
+	} else {
+		var err error
+		if queue.machine, err = strconv.ParseInt(machineTemp, 10, 64); nil != err {
+			common.Errorf("fail to parse machine.")
+			return
+		}
+
+	}
+	queue.handlerQueue = handlerQueue
 	if "" == queue.addr || "" == queue.cluster || "" == queue.client || "" == queue.group_object || "" == queue.durable || "" == queue.start_way || "" == queue.gateway_object {
 		common.Errorf("fail to get queue config.%v", queue)
 		return
 	}
 
 	s := strings.Split(queue.start_way, " ")
-	startOpt = stan.StartAt(pb.StartPosition_NewOnly)
+	queue.startOpt = stan.StartAt(pb.StartPosition_NewOnly)
 	if 0 == strings.Compare(s[0], "startSeq") {
 		t, err := strconv.ParseInt(s[1], 10, 64)
 		if err != nil {
 			common.Errorf("queue config err.%v %v", queue, err)
 			return
 		}
-		startOpt = stan.StartAtSequence(uint64(t))
+		queue.startOpt = stan.StartAtSequence(uint64(t))
 	} else if 0 == strings.Compare(s[0], "deliverLast") {
-		startOpt = stan.StartWithLastReceived()
+		queue.startOpt = stan.StartWithLastReceived()
 	} else if 0 == strings.Compare(s[0], "deliverAll") {
-		startOpt = stan.DeliverAllAvailable()
+		queue.startOpt = stan.DeliverAllAvailable()
 	} else if 0 == strings.Compare(s[0], "startDelta") {
 		t, err := strconv.ParseInt(s[1], 10, 64)
 		if err != nil {
@@ -61,7 +82,7 @@ func InitQueue() {
 			return
 		}
 
-		startOpt = stan.StartAtTimeDelta(time.Duration(t))
+		queue.startOpt = stan.StartAtTimeDelta(time.Duration(t))
 	} else {
 		common.Errorf("queue config err.%v", queue)
 		return
@@ -86,7 +107,7 @@ AGAIN:
 }
 
 func connectQueue() (err error) {
-	gConn, err = stan.Connect(queue.cluster, queue.client, stan.NatsURL(queue.addr), stan.SetConnectionLostHandler(rconnect))
+	queue.gConn, err = stan.Connect(queue.cluster, queue.client, stan.NatsURL(queue.addr), stan.SetConnectionLostHandler(rconnect))
 	if err != nil {
 		common.Errorf("Can't connect: %v.\nMake sure a NATS Streaming Server is running at: %s", err, queue.addr)
 		return
@@ -94,9 +115,9 @@ func connectQueue() (err error) {
 
 	sGroupOb := strings.Split(queue.group_object, " ")
 	for i := 0; i < len(sGroupOb); {
-		_, err = gConn.QueueSubscribe(sGroupOb[i+1], sGroupOb[i], queueHandle, startOpt, stan.DurableName(queue.durable), stan.SetManualAckMode())
+		_, err = queue.gConn.QueueSubscribe(sGroupOb[i+1], sGroupOb[i], queueHandle, queue.startOpt, stan.DurableName(queue.durable), stan.SetManualAckMode())
 		if err != nil {
-			gConn.Close()
+			queue.gConn.Close()
 			common.Errorf("fail to subscribe queue.%v %v", queue, err)
 			return
 		}
@@ -106,22 +127,19 @@ func connectQueue() (err error) {
 }
 
 func queueHandle(msg *stan.Msg) {
-	common.Infof("cmd.%d", msg.Sequence)
+	common.Infof("Sequence.%d", msg.Sequence)
 	input := protocol.Request{}
 	err := proto.Unmarshal(msg.Data, &input)
 
 	if nil != err {
 		common.Errorf("fail Unmarshal msg.%v", err)
 	} else {
-		common.Infof("cmd.%d %d", input.GetServant(), msg.Sequence)
-		// if input.Uid == uint32(machine) {
-		// 	common.Infof("own msg")
-		// } else {
-		// 	switch input.GetServant() {
-		// 	case uint32(protocol.ECmd_E_LOGIN_NOTIFY_REQ):
-		// 		HandleToken(&input)
-		// 	}
-		// }
+		common.Infof("cmd.%d", input.GetServant())
+		if input.Uid == uint32(queue.machine) {
+			common.Infof("own msg")
+		} else {
+			queue.handlerQueue(input.GetBody())
+		}
 	}
 	msg.Ack()
 	return
@@ -129,13 +147,13 @@ func queueHandle(msg *stan.Msg) {
 
 func queueSend(subj string, b []byte, cmd uint32) (err error) {
 	common.Infof("cmd.%d", cmd)
-	req := protocol.Request{Version: 1, Servant: cmd, Seq: GetSeq(), Uid: uint32(machine), Body: b}
+	req := protocol.Request{Version: 1, Servant: cmd, Seq: 1, Uid: uint32(queue.machine), Body: b}
 	b, err = proto.Marshal(&req)
 	if err != nil {
 		common.Errorf("faile to Marshal msg.err: %v", err)
 		return
 	}
-	err = gConn.Publish(subj, b)
+	err = queue.gConn.Publish(subj, b)
 	if err != nil {
 		common.Errorf("Error during publish: %v\n", err)
 	}

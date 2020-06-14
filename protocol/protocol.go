@@ -12,7 +12,7 @@ type (
 	}
 
 	Codec interface {
-		Receive() (interface{}, interface{}, error)
+		Receive() (interface{}, interface{}, error, int)
 		Send(interface{}) error
 		Close() error
 		NoticeClose()

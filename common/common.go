@@ -2,7 +2,13 @@ package common
 
 import (
 	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"net"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -55,4 +61,59 @@ func IPString2Long(ip string) uint {
 	}
 
 	return uint(b[3]) | uint(b[2])<<8 | uint(b[1])<<16 | uint(b[0])<<24
+}
+
+func GetExternal() string {
+	resp, err := http.Get("http://myexternalip.com/raw")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	content, _ := ioutil.ReadAll(resp.Body)
+	return string(content)
+}
+func GetIntranetIp() {
+	addrs, err := net.InterfaceAddrs()
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	for _, address := range addrs {
+		// 检查ip地址判断是否回环地址
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				fmt.Println("ip:", ipnet.IP.String())
+			}
+		}
+	}
+}
+
+func InetAton(ipnr net.IP) int64 {
+	bits := strings.Split(ipnr.String(), ".")
+
+	b0, _ := strconv.Atoi(bits[0])
+	b1, _ := strconv.Atoi(bits[1])
+	b2, _ := strconv.Atoi(bits[2])
+	b3, _ := strconv.Atoi(bits[3])
+
+	var sum int64
+
+	sum += int64(b0) << 24
+	sum += int64(b1) << 16
+	sum += int64(b2) << 8
+	sum += int64(b3)
+
+	return sum
+}
+
+func InetNtoa(ipnr int64) net.IP {
+	var bytes [4]byte
+	bytes[0] = byte(ipnr & 0xFF)
+	bytes[1] = byte((ipnr >> 8) & 0xFF)
+	bytes[2] = byte((ipnr >> 16) & 0xFF)
+	bytes[3] = byte((ipnr >> 24) & 0xFF)
+
+	return net.IPv4(bytes[3], bytes[2], bytes[1], bytes[0])
 }

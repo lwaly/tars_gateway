@@ -1,9 +1,10 @@
-package proxy
+package util
 
 import (
 	"errors"
-	"github.com/lwaly/tars_gateway/common"
 	"sync"
+
+	"github.com/lwaly/tars_gateway/common"
 )
 
 var mapMaxConn map[string]int32

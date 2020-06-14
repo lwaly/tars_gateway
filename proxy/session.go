@@ -55,15 +55,15 @@ func NewSession(codec protocol.Codec, controller Controller) *Session {
 	return session
 }
 
-func (session *Session) Receive() (interface{}, interface{}, error) {
+func (session *Session) Receive() (interface{}, interface{}, error, int) {
 	session.recvLock.Lock()
 	defer session.recvLock.Unlock()
 
-	msg, req, err := session.codec.Receive()
+	msg, req, err, n := session.codec.Receive()
 	if err != nil {
 		session.Close()
 	}
-	return msg, req, err
+	return msg, req, err, n
 }
 
 //同步发送
@@ -129,6 +129,8 @@ func (session *Session) Close() error {
 			session.sendLock.Unlock()
 		}
 
+		//关闭代理
+		session.controller.Close()
 		//关闭协议传输
 		err := session.codec.Close()
 
