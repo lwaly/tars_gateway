@@ -129,8 +129,6 @@ func (session *Session) Close() error {
 			session.sendLock.Unlock()
 		}
 
-		//关闭代理
-		session.controller.Close()
 		//关闭协议传输
 		err := session.codec.Close()
 

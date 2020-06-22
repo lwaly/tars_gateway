@@ -9,11 +9,12 @@ import (
 
 type Controller interface {
 	InitProxy()
-	Verify() error
-	HandleReq(body, reqTemp interface{}) (output, reqOut interface{}, err error)
-	HandleRsp(output, reqOut interface{}) (outHeadRsp []byte, err error)
-	IsExit() int
-	Close()
+	TcpProxyGet() (info interface{})
+	Verify(info interface{}) error
+	HandleReq(info, body, reqTemp interface{}) (output, reqOut interface{}, err error)
+	HandleRsp(info, output, reqOut interface{}) (outHeadRsp []byte, err error)
+	IsExit(info interface{}) int
+	Close(info interface{})
 }
 
 func InitProxy() {
@@ -37,63 +38,11 @@ func InitProxy() {
 func ProxyTcpHandle(session *Session) {
 	defer session.Close()
 	var wg sync.WaitGroup
-	//var err error
 	var uid int64
-	// var server uint32
-	// var servant uint32
-	// isret := 0
-
-	// if err = session.controller.Verify(); nil != err {
-	// 	common.Errorf("error verify user.%d", uid)
-	// 	isret = 2
-	// 	return
-	// }
-
-	// ticker := time.NewTicker(time.Millisecond * 500)
-
-	// wg.Add(1)
-	// go func() {
-	// 	defer wg.Done()
-	// 	tempV, ok := mapUser.Load(uid)
-	// 	if !ok {
-	// 		common.Infof("fail to find user.%d", uid)
-	// 		return
-	// 	}
-	// 	v, ok := tempV.(*stUserInfo)
-	// 	if ok {
-	// 		//var seq uint32
-	// 		for {
-	// 			select {
-	// 			case tokenRet = <-v.reader:
-	// 				isret = 1
-	// 				msg,err:=session.controller.Notice()
-	// 				if err = session.Send(msg); nil != err {
-	// 					common.Infof("fail to send msg.%v", err)
-	// 					return
-	// 				}
-	// 				//休眠3秒等待发送退出消息成功
-	// 				//time.Sleep(time.Duration(3) * time.Second)
-	// 				common.Infof("Login from a different location.uid=%d", uid)
-	// 				session.NoticeClose()
-	// 				return
-	// 			case <-ticker.C:
-	// 				if 0 != isret {
-	// 					common.Infof("connect close.uid=%d", uid)
-	// 					return
-	// 				}
-	// 				//PushMsg(session, uid, seq)
-	// 			}
-	// 			if 0 != isret {
-	// 				common.Infof("connect close.uid=%d", uid)
-	// 				return
-	// 			}
-	// 		}
-	// 	}
-	// }()
-
+	info := session.controller.TcpProxyGet()
 	for {
 		body, reqTemp, err, n := session.Receive()
-		if 0 != session.controller.IsExit() {
+		if 0 != session.controller.IsExit(info) {
 			common.Infof("connect close.uid=%d.len=%d", uid, n)
 			session.NoticeClose()
 			break
@@ -109,11 +58,11 @@ func ProxyTcpHandle(session *Session) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			output, reqOut, err := session.controller.HandleReq(body, reqTemp)
+			output, reqOut, err := session.controller.HandleReq(info, body, reqTemp)
 			if err != nil {
 				return
 			}
-			msg, err := session.controller.HandleRsp(output, reqOut)
+			msg, err := session.controller.HandleRsp(info, output, reqOut)
 			if err != nil {
 				common.Infof("fail to handle req msg.%v", err)
 				return
@@ -124,5 +73,8 @@ func ProxyTcpHandle(session *Session) {
 			}
 		}()
 	}
+
+	//关闭代理
+	session.controller.Close(info)
 	wg.Wait()
 }

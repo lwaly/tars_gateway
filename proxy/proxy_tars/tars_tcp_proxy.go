@@ -23,6 +23,55 @@ const CMD_LOGOUT = 1999
 const CMD_HEART uint32 = 101
 
 type StTarsTcpProxy struct {
+}
+
+func (outInfo *StTarsTcpProxy) InitProxy() {}
+func (outInfo *StTarsTcpProxy) TcpProxyGet() interface{} {
+	return new(stTarsTcpProxy)
+}
+func (inoutInfofo *StTarsTcpProxy) Verify(info interface{}) error {
+	tempInfo, ok := info.(*stTarsTcpProxy)
+	if !ok {
+		common.Errorf("fail to convert")
+		return errors.New("fail to convert")
+	}
+	return tempInfo.Verify()
+}
+func (outInfo *StTarsTcpProxy) HandleReq(info, body, reqTemp interface{}) (output, reqOut interface{}, err error) {
+	tempInfo, ok := info.(*stTarsTcpProxy)
+	if !ok {
+		common.Errorf("fail to convert")
+		return nil, nil, errors.New("fail to convert")
+	}
+	return tempInfo.HandleReq(body, reqTemp)
+}
+func (outInfo *StTarsTcpProxy) HandleRsp(info, output, reqOut interface{}) (outHeadRsp []byte, err error) {
+	tempInfo, ok := info.(*stTarsTcpProxy)
+	if !ok {
+		common.Errorf("fail to convert")
+		return nil, errors.New("fail to convert")
+	}
+	return tempInfo.HandleRsp(output, reqOut)
+}
+func (outInfo *StTarsTcpProxy) IsExit(info interface{}) int {
+	tempInfo, ok := info.(*stTarsTcpProxy)
+	if !ok {
+		common.Errorf("fail to convert")
+		return 0
+	}
+	return tempInfo.IsExit()
+}
+func (outInfo *StTarsTcpProxy) Close(info interface{}) {
+	tempInfo, ok := info.(*stTarsTcpProxy)
+	if !ok {
+		common.Errorf("fail to convert")
+		return
+	}
+	tempInfo.Close()
+	return
+}
+
+type stTarsTcpProxy struct {
 	privateKey *rsa.PrivateKey
 	uid        uint64
 	reader     chan []byte
@@ -45,7 +94,7 @@ func init() {
 
 	mapApp = make(map[uint32]string)
 	mapServer = make(map[string]map[uint32]string)
-	mapUser.Store(uint64(0), &StTarsTcpProxy{reader: make(chan []byte)})
+	mapUser.Store(uint64(0), &stTarsTcpProxy{reader: make(chan []byte)})
 
 	fileLock = flock.New("/var/lock/gateway-lock.lock")
 
@@ -115,11 +164,11 @@ func init() {
 	comm.SetLocator(addr)
 }
 
-func (info *StTarsTcpProxy) InitProxy() {
+func (info *stTarsTcpProxy) InitProxy() {
 	util.InitQueue(util.HandlerQueueFunc(HandleQueue))
 }
 
-func (info *StTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut interface{}, err error) {
+func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut interface{}, err error) {
 	var ok bool
 	reqOutTemp, ok := reqTemp.(protocol.MsgHead)
 	if !ok {
@@ -128,7 +177,7 @@ func (info *StTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 		return
 	}
 	key := "1"
-	common.Infof("begin msg.server=%d.cmd=%d.Encrypt=%d.RouteId=%d.seq=%d.uid=%d",
+	common.Infof("begin msg.server=%d.cmd=%d.Encrypt=%d.RouteId=%d.seq=%d.uid=%s",
 		reqOutTemp.GetServer(), reqOutTemp.GetServant(), reqOutTemp.GetEncrypt(), reqOutTemp.GetRouteId(), reqOutTemp.GetSeq(), key)
 	if 0 == reqOutTemp.GetBodyLen() && CMD_HEART == reqOutTemp.GetServant() {
 		common.Infof("heart msg")
@@ -229,7 +278,7 @@ func (info *StTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 	return
 }
 
-func (info *StTarsTcpProxy) HandleRsp(output, reqOut interface{}) (outHeadRsp []byte, err error) {
+func (info *stTarsTcpProxy) HandleRsp(output, reqOut interface{}) (outHeadRsp []byte, err error) {
 	var ok bool
 	reqOutTemp, ok := reqOut.(protocol.MsgHead)
 	if !ok {
@@ -268,15 +317,15 @@ func (info *StTarsTcpProxy) HandleRsp(output, reqOut interface{}) (outHeadRsp []
 	return
 }
 
-func (info *StTarsTcpProxy) Verify() (err error) {
+func (info *stTarsTcpProxy) Verify() (err error) {
 	return
 }
 
-func (info *StTarsTcpProxy) IsExit() int {
+func (info *stTarsTcpProxy) IsExit() int {
 	return info.isExit
 }
 
-func (info *StTarsTcpProxy) verify(output *protocol.Respond) (err error) {
+func (info *stTarsTcpProxy) verify(output *protocol.Respond) (err error) {
 	//扩展字段有值，认为是客户端重新认证，更换秘钥
 	if 0 != len(output.GetExtend()) {
 		if claims, err := util.TokenAuth(string(output.GetExtend()), secret); nil != err {
@@ -284,7 +333,7 @@ func (info *StTarsTcpProxy) verify(output *protocol.Respond) (err error) {
 			return err
 		} else {
 			if tempV, ok := mapUser.Load(claims.Userid); ok {
-				if v, ok := tempV.(*StTarsTcpProxy); ok {
+				if v, ok := tempV.(*stTarsTcpProxy); ok {
 					if v.uid != info.uid && 0 != info.uid {
 						mapUser.Delete(info.uid)
 					}
@@ -308,7 +357,7 @@ func (info *StTarsTcpProxy) verify(output *protocol.Respond) (err error) {
 	return
 }
 
-func (info *StTarsTcpProxy) objFind(reqOut *protocol.MsgHead) (strObj string, err error) {
+func (info *stTarsTcpProxy) objFind(reqOut *protocol.MsgHead) (strObj string, err error) {
 	app, ok := mapApp[reqOut.GetApp()]
 	if !ok {
 		common.Errorf("fail to get app name ", reqOut.GetApp())
@@ -333,7 +382,7 @@ func (info *StTarsTcpProxy) objFind(reqOut *protocol.MsgHead) (strObj string, er
 	return fmt.Sprintf("%s.%s.%sObj", app, mapSt, mapSt), nil
 }
 
-func (info *StTarsTcpProxy) Close() {
+func (info *stTarsTcpProxy) Close() {
 	_, ok := mapUser.Load(info.uid)
 	if ok {
 		mapUser.Delete(info.uid)
@@ -350,7 +399,7 @@ func HandleQueue(b []byte) {
 	} else {
 		tempV, ok := mapUser.Load(req.GetUid())
 		if ok {
-			v, ok := tempV.(*StTarsTcpProxy)
+			v, ok := tempV.(*stTarsTcpProxy)
 			if ok {
 				common.Infof("user exit.uid=%d", req.GetUid())
 				v.isExit = 1
