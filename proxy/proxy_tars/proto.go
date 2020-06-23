@@ -1,4 +1,4 @@
-package protocol
+package proxy_tars
 
 import (
 	"bytes"
@@ -17,22 +17,50 @@ const TIMEOUT = "tcp_timeout"
 type ProtoProtocol struct {
 }
 
-func Proto() *ProtoProtocol {
-	return &ProtoProtocol{}
-}
-
-func (s *ProtoProtocol) NewCodec(conn net.Conn, timeOut, heartbeat int) (Codec, error) {
-	codec := &ProtobufCodec{
+func (outInfo *ProtoProtocol) NewCodec(conn net.Conn, timeOut, heartbeat int) interface{} {
+	return &protoProtocol{
 		conn:      conn,
 		timeOut:   time.Duration(timeOut),
 		heartbeat: int64(heartbeat),
 		endtime:   time.Now().Unix(),
 		IsClose:   false,
 	}
-	return codec, nil
+}
+func (outInfo *ProtoProtocol) Receive(info interface{}) (interface{}, interface{}, error, int) {
+	tempInfo, ok := info.(*protoProtocol)
+	if !ok {
+		common.Errorf("fail to convert")
+		return nil, nil, errors.New("fail to convert"), 0
+	}
+	return tempInfo.Receive()
+}
+func (outInfo *ProtoProtocol) Send(info interface{}, b interface{}) error {
+	tempInfo, ok := info.(*protoProtocol)
+	if !ok {
+		common.Errorf("fail to convert")
+		return errors.New("fail to convert")
+	}
+	return tempInfo.Send(b)
+}
+func (outInfo *ProtoProtocol) Close(info interface{}) error {
+	tempInfo, ok := info.(*protoProtocol)
+	if !ok {
+		common.Errorf("fail to convert")
+		return errors.New("fail to convert")
+	}
+	return tempInfo.Close()
+}
+func (outInfo *ProtoProtocol) NoticeClose(info interface{}) {
+	tempInfo, ok := info.(*protoProtocol)
+	if !ok {
+		common.Errorf("fail to convert")
+		return
+	}
+	tempInfo.NoticeClose()
+	return
 }
 
-type ProtobufCodec struct {
+type protoProtocol struct {
 	preBuf    bytes.Buffer //加入发生缓存区
 	conn      net.Conn
 	timeOut   time.Duration
@@ -41,7 +69,7 @@ type ProtobufCodec struct {
 	IsClose   bool
 }
 
-func (sc *ProtobufCodec) Receive() (interface{}, interface{}, error, int) {
+func (sc *protoProtocol) Receive() (interface{}, interface{}, error, int) {
 	var headLength [39]byte
 HEAD_LENGTH:
 	sc.conn.SetReadDeadline(time.Now().Add(sc.timeOut * time.Second))
@@ -146,7 +174,7 @@ BODY:
 	return body, req, nil, len(headLength) + len(head) + len(buf)
 }
 
-func (sc *ProtobufCodec) Send(msg interface{}) error {
+func (sc *protoProtocol) Send(msg interface{}) error {
 	//在预处理缓冲区写好东西先
 	sc.preBuf.Reset()
 	sc.preBuf.Write(msg.([]byte))
@@ -162,10 +190,10 @@ func (sc *ProtobufCodec) Send(msg interface{}) error {
 	return nil
 }
 
-func (sc *ProtobufCodec) Close() error {
+func (sc *protoProtocol) Close() error {
 	return sc.conn.Close()
 }
 
-func (sc *ProtobufCodec) NoticeClose() {
+func (sc *protoProtocol) NoticeClose() {
 	sc.IsClose = true
 }

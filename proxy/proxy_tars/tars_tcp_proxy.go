@@ -9,7 +9,6 @@ import (
 
 	"github.com/lwaly/tars_gateway/common"
 	. "github.com/lwaly/tars_gateway/common"
-	"github.com/lwaly/tars_gateway/protocol"
 	"github.com/lwaly/tars_gateway/util"
 
 	"github.com/TarsCloud/TarsGo/tars"
@@ -29,7 +28,7 @@ func (outInfo *StTarsTcpProxy) InitProxy() {}
 func (outInfo *StTarsTcpProxy) TcpProxyGet() interface{} {
 	return new(stTarsTcpProxy)
 }
-func (inoutInfofo *StTarsTcpProxy) Verify(info interface{}) error {
+func (outInfo *StTarsTcpProxy) Verify(info interface{}) error {
 	tempInfo, ok := info.(*stTarsTcpProxy)
 	if !ok {
 		common.Errorf("fail to convert")
@@ -170,7 +169,7 @@ func (info *stTarsTcpProxy) InitProxy() {
 
 func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut interface{}, err error) {
 	var ok bool
-	reqOutTemp, ok := reqTemp.(protocol.MsgHead)
+	reqOutTemp, ok := reqTemp.(MsgHead)
 	if !ok {
 		common.Errorf("fail to convert head")
 		err = errors.New("fail to convert head")
@@ -184,10 +183,10 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 		return
 	}
 
-	var rspBody protocol.MsgBody
+	var rspBody MsgBody
 
 	if nil != body {
-		rspBody, ok = body.(protocol.MsgBody)
+		rspBody, ok = body.(MsgBody)
 		if !ok {
 			common.Errorf("fail to convert head")
 			err = errors.New("fail to convert head")
@@ -243,26 +242,26 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 
 	point := manager.GetNextEndpoint()
 	if nil != point {
-		var appObj *protocol.Server
+		var appObj *Server
 		addr := fmt.Sprintf("%d%d", IPString2Long(point.Host), point.Port)
 		appObjTemp, ok := info.mapServer.Load(addr)
 		if !ok {
 			common.Infof("first.%d", key)
-			appObj = new(protocol.Server)
+			appObj = new(Server)
 			comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
 			info.mapServer.Store(addr, appObj)
 		} else {
-			appObj, ok = appObjTemp.(*protocol.Server)
+			appObj, ok = appObjTemp.(*Server)
 			if !ok {
 				common.Infof("first.%d", key)
 				info.mapServer.Delete(addr)
-				appObj = new(protocol.Server)
+				appObj = new(Server)
 				comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
 				info.mapServer.Store(addr, appObj)
 			}
 		}
 
-		input := protocol.Request{Version: reqOutTemp.GetVersion(), Servant: reqOutTemp.GetServant(), Seq: reqOutTemp.GetSeq(), Uid: reqOutTemp.GetRouteId(), Body: rspBody.GetBody()}
+		input := Request{Version: reqOutTemp.GetVersion(), Servant: reqOutTemp.GetServant(), Seq: reqOutTemp.GetSeq(), Uid: reqOutTemp.GetRouteId(), Body: rspBody.GetBody()}
 		outputTemp, err := appObj.Handle(input)
 		if err != nil {
 			common.Errorf("err: %v body=%s extend=%s", err, string(outputTemp.GetBody()[:]), string(outputTemp.GetExtend()[:]))
@@ -280,14 +279,14 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 
 func (info *stTarsTcpProxy) HandleRsp(output, reqOut interface{}) (outHeadRsp []byte, err error) {
 	var ok bool
-	reqOutTemp, ok := reqOut.(protocol.MsgHead)
+	reqOutTemp, ok := reqOut.(MsgHead)
 	if !ok {
 		common.Errorf("fail to convert head")
 		err = errors.New("fail to convert head")
 		return
 	}
 
-	outputTemp, ok := output.(protocol.Respond)
+	outputTemp, ok := output.(Respond)
 	if !ok {
 		common.Errorf("fail to convert head")
 		err = errors.New("fail to convert head")
@@ -325,7 +324,7 @@ func (info *stTarsTcpProxy) IsExit() int {
 	return info.isExit
 }
 
-func (info *stTarsTcpProxy) verify(output *protocol.Respond) (err error) {
+func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
 	//扩展字段有值，认为是客户端重新认证，更换秘钥
 	if 0 != len(output.GetExtend()) {
 		if claims, err := util.TokenAuth(string(output.GetExtend()), secret); nil != err {
@@ -357,7 +356,7 @@ func (info *stTarsTcpProxy) verify(output *protocol.Respond) (err error) {
 	return
 }
 
-func (info *stTarsTcpProxy) objFind(reqOut *protocol.MsgHead) (strObj string, err error) {
+func (info *stTarsTcpProxy) objFind(reqOut *MsgHead) (strObj string, err error) {
 	app, ok := mapApp[reqOut.GetApp()]
 	if !ok {
 		common.Errorf("fail to get app name ", reqOut.GetApp())
@@ -390,7 +389,7 @@ func (info *stTarsTcpProxy) Close() {
 }
 
 func HandleQueue(b []byte) {
-	req := protocol.LoginNotifyReq{}
+	req := LoginNotifyReq{}
 	err := proto.Unmarshal(b, &req)
 
 	if nil != err {

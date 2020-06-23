@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"net"
 	"sync"
 
 	"github.com/lwaly/tars_gateway/common"
@@ -35,16 +36,17 @@ func InitProxy() {
 	common.LevelSet(level)
 }
 
-func ProxyTcpHandle(session *Session) {
-	defer session.Close()
+func ProxyTcpHandle(session *Session, conn net.Conn) {
 	var wg sync.WaitGroup
 	var uid int64
-	info := session.controller.TcpProxyGet()
+	infoTcpProxy := session.controller.TcpProxyGet()
+	infoProtocol := session.codec.NewCodec(conn, 2, 45)
+	defer session.Close(infoProtocol)
 	for {
-		body, reqTemp, err, n := session.Receive()
-		if 0 != session.controller.IsExit(info) {
+		body, reqTemp, err, n := session.Receive(infoProtocol)
+		if 0 != session.controller.IsExit(infoTcpProxy) {
 			common.Infof("connect close.uid=%d.len=%d", uid, n)
-			session.NoticeClose()
+			session.NoticeClose(infoProtocol)
 			break
 		}
 		if err != nil && "EOF" != err.Error() {
@@ -58,16 +60,16 @@ func ProxyTcpHandle(session *Session) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			output, reqOut, err := session.controller.HandleReq(info, body, reqTemp)
+			output, reqOut, err := session.controller.HandleReq(infoTcpProxy, body, reqTemp)
 			if err != nil {
 				return
 			}
-			msg, err := session.controller.HandleRsp(info, output, reqOut)
+			msg, err := session.controller.HandleRsp(infoTcpProxy, output, reqOut)
 			if err != nil {
 				common.Infof("fail to handle req msg.%v", err)
 				return
 			}
-			if err = session.Send(msg); nil != err {
+			if err = session.Send(infoProtocol, msg); nil != err {
 				common.Infof("fail to send msg.%v", err)
 				return
 			}
@@ -75,6 +77,6 @@ func ProxyTcpHandle(session *Session) {
 	}
 
 	//关闭代理
-	session.controller.Close(info)
+	session.controller.Close(infoTcpProxy)
 	wg.Wait()
 }

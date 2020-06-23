@@ -52,13 +52,8 @@ func (server *ReflectServer) Listener() net.Listener {
 }
 
 func (server *ReflectServer) handleConnection(conn net.Conn) {
-	codec, err := server.protocol.NewCodec(conn, 2, 45)
-	if err != nil {
-		conn.Close()
-		return
-	}
-	if session := NewSession(codec, server.controller); nil != session {
-		server.handler.HandleSession(session)
+	if session := NewSession(server.protocol, server.controller); nil != session {
+		server.handler.HandleSession(session, conn)
 	} else {
 		common.Errorf("fail to create session.")
 	}
