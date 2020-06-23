@@ -23,7 +23,7 @@ type stQueue struct {
 	start_way      string
 	gateway_object string
 	handlerQueue   HandlerQueueFunc
-	machine        int64
+	machine        uint64
 	gConn          stan.Conn
 	startOpt       stan.SubscriptionOption
 }
@@ -47,14 +47,14 @@ func InitQueue(handlerQueue HandlerQueueFunc) {
 
 	machineTemp, _ := common.Conf.GetValue("queue", "machine")
 	if "" == machineTemp {
-		queue.machine = common.InetAton(net.ParseIP(common.GetExternal()))
+		queue.machine = uint64(common.InetAton(net.ParseIP(common.GetExternal())))
 	} else {
-		var err error
-		if queue.machine, err = strconv.ParseInt(machineTemp, 10, 64); nil != err {
+		if temp, err := strconv.ParseInt(machineTemp, 10, 64); nil != err {
 			common.Errorf("fail to parse machine.")
 			return
+		} else {
+			queue.machine = uint64(temp)
 		}
-
 	}
 	queue.handlerQueue = handlerQueue
 	if "" == queue.addr || "" == queue.cluster || "" == queue.client || "" == queue.group_object || "" == queue.durable || "" == queue.start_way || "" == queue.gateway_object {
@@ -135,7 +135,7 @@ func queueHandle(msg *stan.Msg) {
 		common.Errorf("fail Unmarshal msg.%v", err)
 	} else {
 		common.Infof("cmd.%d", input.GetServant())
-		if input.Uid == uint32(queue.machine) {
+		if input.Uid == queue.machine {
 			common.Infof("own msg")
 		} else {
 			queue.handlerQueue(input.GetBody())
@@ -147,7 +147,7 @@ func queueHandle(msg *stan.Msg) {
 
 func queueSend(subj string, b []byte, cmd uint32) (err error) {
 	common.Infof("cmd.%d", cmd)
-	req := protocol.Request{Version: 1, Servant: cmd, Seq: 1, Uid: uint32(queue.machine), Body: b}
+	req := protocol.Request{Version: 1, Servant: cmd, Seq: 1, Uid: queue.machine, Body: b}
 	b, err = proto.Marshal(&req)
 	if err != nil {
 		common.Errorf("faile to Marshal msg.err: %v", err)

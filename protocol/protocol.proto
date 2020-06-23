@@ -10,7 +10,7 @@ message Request {
     fixed32 version  = 1;               ///< 协议版本号
     fixed32 servant  = 2;               ///<业务模块内部具体接
     fixed32 seq      = 3;               ///< 序列号
-    fixed32 uid      = 4;
+    fixed64 uid      = 4;
     bytes   body     = 5;
 }
 

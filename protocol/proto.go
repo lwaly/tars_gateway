@@ -42,7 +42,7 @@ type ProtobufCodec struct {
 }
 
 func (sc *ProtobufCodec) Receive() (interface{}, interface{}, error, int) {
-	var headLength [35]byte
+	var headLength [39]byte
 HEAD_LENGTH:
 	sc.conn.SetReadDeadline(time.Now().Add(sc.timeOut * time.Second))
 	n, err := io.ReadFull(sc.conn, headLength[:])
