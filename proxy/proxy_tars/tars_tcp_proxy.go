@@ -194,22 +194,20 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 		}
 	}
 
-	if (1 == reqOutTemp.GetEncrypt()) && (nil != info.privateKey) && (0 < reqOutTemp.GetBodyLen()) {
+	if (1 == reqOutTemp.GetEncrypt()) && (nil != info.privateKey) {
 		if rspBody.Body, err = util.Decrypt(rspBody.Body, info.privateKey); nil != err {
 			common.Errorf("fail to Decrypt msg")
 			err = errors.New(ErrUnknown)
 			return
 		}
-	} else if (2 == reqOutTemp.GetEncrypt()) && (nil != info.privateKey) && (0 < reqOutTemp.GetBodyLen()) {
+	} else if (2 == reqOutTemp.GetEncrypt()) && (nil != info.privateKey) {
 		if rspBody.Body, err = util.DecryptPkcs(rspBody.Body, info.privateKey); nil != err {
 			common.Errorf("fail to Decrypt msg")
 			err = errors.New(ErrUnknown)
 			return
 		}
-	} else if (3 == reqOutTemp.GetEncrypt()) && (reqOutTemp.GetBodyLen() > 190) && (nil != info.privateKey) {
-		rspBody.Body = rspBody.GetExtend()
-	} else if nil == info.privateKey || 0 == reqOutTemp.GetBodyLen() {
-		common.Infof("do not verify or empty body.%d", reqOutTemp.GetBodyLen())
+	} else if 3 == reqOutTemp.GetEncrypt() || nil == info.privateKey || 0 == reqOutTemp.GetBodyLen() {
+		common.Infof("do not verify or empty body.%d %d", reqOutTemp.GetBodyLen(), reqOutTemp.GetEncrypt())
 	} else {
 		common.Errorf("fail to convert head")
 		err = errors.New("fail to convert head")

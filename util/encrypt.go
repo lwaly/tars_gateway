@@ -20,9 +20,15 @@ func DecryptPkcsByBytes(ciphertext, privatekey []byte) (decryptedtext []byte, er
 		return
 	}
 
-	decryptedtext, err = rsa.DecryptPKCS1v15(nil, tempPrivatekey, ciphertext)
-	if err != nil {
-		return nil, fmt.Errorf("RSA DecryptPkcs failed, error=%s\n", err.Error())
+	if 0 != len(ciphertext)%((tempPrivatekey.N.BitLen()+7)/8) {
+		return nil, fmt.Errorf("error input.%d %d\n", len(ciphertext), (tempPrivatekey.N.BitLen()+7)/8)
+	}
+	for i := 0; i < len(ciphertext); i += (tempPrivatekey.N.BitLen() + 7) / 8 {
+		decryptedtextTemp, err := rsa.DecryptPKCS1v15(rand.Reader, tempPrivatekey, ciphertext)
+		if err != nil {
+			return nil, fmt.Errorf("RSA DecryptPkcs failed, error=%s\n", err.Error())
+		}
+		decryptedtext = append(decryptedtext, decryptedtextTemp...)
 	}
 
 	return decryptedtext, err
@@ -33,59 +39,93 @@ func DecryptByBytes(ciphertext, privatekey []byte) (decryptedtext []byte, err er
 	if tempPrivatekey, err = LoadPrivateKeyBytes(privatekey); nil != err {
 		return
 	}
-
-	sha256hash := sha256.New()
-	decryptedtext, err = rsa.DecryptOAEP(sha256hash, rand.Reader, tempPrivatekey, ciphertext, nil)
-	if err != nil {
-		return nil, fmt.Errorf("RSA DecryptOAEP failed, error=%s\n", err.Error())
+	if 0 != len(ciphertext)%((tempPrivatekey.N.BitLen()+7)/8) {
+		return nil, fmt.Errorf("error input.%d %d\n", len(ciphertext), (tempPrivatekey.N.BitLen()+7)/8)
+	}
+	for i := 0; i < len(ciphertext); i += (tempPrivatekey.N.BitLen() + 7) / 8 {
+		sha256hash := sha256.New()
+		decryptedtextTemp, err := rsa.DecryptOAEP(sha256hash, rand.Reader, tempPrivatekey, ciphertext[i:i+(tempPrivatekey.N.BitLen()+7)/8], nil)
+		if err != nil {
+			return nil, fmt.Errorf("RSA DecryptOAEP failed, error=%s\n", err.Error())
+		}
+		decryptedtext = append(decryptedtext, decryptedtextTemp...)
 	}
 
 	return decryptedtext, err
 }
 
 // decrypt
-func Decrypt(ciphertext []byte, privatekey *rsa.PrivateKey) ([]byte, error) {
-	// decodedtext, err := base64.StdEncoding.DecodeString(ciphertext)
-	// if err != nil {
-	// 	return "", fmt.Errorf("base64 decode failed, error=%s\n", err.Error())
-	// }
-
+func Decrypt(ciphertext []byte, privatekey *rsa.PrivateKey) (decryptedtext []byte, err error) {
 	sha256hash := sha256.New()
-	decryptedtext, err := rsa.DecryptOAEP(sha256hash, rand.Reader, privatekey, ciphertext, nil)
-	if err != nil {
-		return nil, fmt.Errorf("RSA DecryptOAEP failed, error=%s\n", err.Error())
+	if nil == privatekey || 0 != len(ciphertext)%((privatekey.N.BitLen()+7)/8) {
+		return nil, fmt.Errorf("error input.%d %d\n", len(ciphertext), (privatekey.N.BitLen()+7)/8)
+	}
+	for i := 0; i < len(ciphertext); i += ((privatekey.N.BitLen() + 7) / 8) {
+		decryptedtextTemp, err := rsa.DecryptOAEP(sha256hash, rand.Reader, privatekey, ciphertext[i:i+((privatekey.N.BitLen()+7)/8)], nil)
+		if err != nil {
+			return nil, fmt.Errorf("RSA DecryptOAEP failed, error=%s\n", err.Error())
+		}
+		decryptedtext = append(decryptedtext, decryptedtextTemp...)
+	}
+
+	return decryptedtext, nil
+}
+
+// decrypt
+func DecryptPkcs(ciphertext []byte, privatekey *rsa.PrivateKey) (decryptedtext []byte, err error) {
+	if nil == privatekey || 0 != len(ciphertext)%((privatekey.N.BitLen()+7)/8) {
+		return nil, fmt.Errorf("error input.%d %d\n", len(ciphertext), (privatekey.N.BitLen()+7)/8)
+	}
+	for i := 0; i < len(ciphertext); i += (privatekey.N.BitLen() + 7) / 8 {
+		decryptedtextTemp, err := rsa.DecryptPKCS1v15(rand.Reader, privatekey, ciphertext[i:i+(privatekey.N.BitLen()+7)/8])
+		if err != nil {
+			return nil, fmt.Errorf("RSA DecryptPkcs failed, error=%s\n", err.Error())
+		}
+		decryptedtext = append(decryptedtext, decryptedtextTemp...)
 	}
 
 	return decryptedtext, err
 }
 
 // encrypt
-func Encrypt(plaintext []byte, publickey *rsa.PublicKey) ([]byte, error) {
-	label := []byte("")
+func Encrypt(plaintext []byte, publickey *rsa.PublicKey) (ciphertext []byte, err error) {
+	l := 0
+	length := len(plaintext)
 	sha256hash := sha256.New()
-	ciphertext, err := rsa.EncryptOAEP(sha256hash, rand.Reader, publickey, plaintext, label)
-	if err != nil {
-		return nil, fmt.Errorf("RSA EncryptOAEP failed, error=%s\n", err.Error())
+	for i := 0; i < length; {
+		if length-i < (publickey.N.BitLen()+7)/8-2*sha256hash.Size()-2 {
+			l = length - i
+		} else {
+			l = (publickey.N.BitLen()+7)/8 - 2*sha256hash.Size() - 2
+		}
+		ciphertextTemp, err := rsa.EncryptOAEP(sha256hash, rand.Reader, publickey, plaintext[i:i+l], nil)
+		if err != nil {
+			return nil, fmt.Errorf("RSA EncryptOAEP failed, error=%s\n", err.Error())
+		}
+		ciphertext = append(ciphertext, ciphertextTemp...)
+		i += l
 	}
 	return ciphertext, err
 }
 
-// decrypt
-func DecryptPkcs(ciphertext []byte, privatekey *rsa.PrivateKey) ([]byte, error) {
-	decryptedtext, err := rsa.DecryptPKCS1v15(nil, privatekey, ciphertext)
-	if err != nil {
-		return nil, fmt.Errorf("RSA DecryptPkcs failed, error=%s\n", err.Error())
-	}
-
-	return decryptedtext, err
-}
-
 // encrypt
-func EncryptPkcs(plaintext []byte, publickey *rsa.PublicKey) ([]byte, error) {
-	ciphertext, err := rsa.EncryptPKCS1v15(nil, publickey, plaintext)
-	if err != nil {
-		return nil, fmt.Errorf("RSA EncryptPkcs failed, error=%s\n", err.Error())
+func EncryptPkcs(plaintext []byte, publickey *rsa.PublicKey) (ciphertext []byte, err error) {
+	l := 0
+	length := len(plaintext)
+	for i := 0; i < length; {
+		if length-i < (publickey.N.BitLen()+7)/8-11 {
+			l = length - i
+		} else {
+			l = (publickey.N.BitLen()+7)/8 - 11
+		}
+		ciphertextTemp, err := rsa.EncryptPKCS1v15(rand.Reader, publickey, plaintext[i:i+l])
+		if err != nil {
+			return nil, fmt.Errorf("RSA EncryptPkcs failed, error=%s\n", err.Error())
+		}
+		ciphertext = append(ciphertext, ciphertextTemp...)
+		i += l
 	}
+
 	return ciphertext, err
 }
 
