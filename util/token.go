@@ -14,20 +14,20 @@ import (
 )
 
 type Claims struct {
-	Userid int64  `json:"Userid"`
-	Name   string `json:"name"`
+	Uid  uint64 `json:"uid"`
+	Name string `json:"name"`
 	jwt.StandardClaims
 }
 
-func ToMd5(userid int64, expireToken int64, secret string) (decode []byte) {
+func ToMd5(uid uint64, expireToken int64, secret string) (decode []byte) {
 	md5Ctx := md5.New()
-	encode := fmt.Sprintf("%s%d%d", secret, userid, expireToken)
+	encode := fmt.Sprintf("%s%d%d", secret, uid, expireToken)
 	md5Ctx.Write([]byte(encode))
 	cipherStr := md5Ctx.Sum([]byte(secret))
 	return []byte(base64.StdEncoding.EncodeToString(cipherStr))
 }
 
-func CreateToken(id int64, second int64, secret, name string) string {
+func CreateToken(id uint64, second int64, secret, name string) string {
 	expireToken := time.Now().Add(time.Second * time.Duration(second)).Unix()
 	claims := Claims{
 		id,
@@ -41,7 +41,7 @@ func CreateToken(id int64, second int64, secret, name string) string {
 	cToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	// Signs the token with a secret.
-	signedToken, _ := cToken.SignedString(ToMd5(claims.Userid, claims.ExpiresAt, secret))
+	signedToken, _ := cToken.SignedString(ToMd5(claims.Uid, claims.ExpiresAt, secret))
 	return signedToken
 }
 
@@ -63,7 +63,7 @@ func TokenAuth(signedToken, secret string) (claims *Claims, err error) {
 	}
 
 	token, err = jwt.ParseWithClaims(signedToken, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		return ToMd5(claims.Userid, claims.ExpiresAt, secret), nil
+		return ToMd5(claims.Uid, claims.ExpiresAt, secret), nil
 	})
 
 	if nil != err {

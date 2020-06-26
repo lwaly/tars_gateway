@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/lwaly/tars_gateway/common"
 	. "github.com/lwaly/tars_gateway/common"
@@ -20,13 +21,19 @@ import (
 const BITS = 2048
 const CMD_LOGOUT = 1999
 const CMD_HEART uint32 = 101
+const CONNECT_CLOSE int = 1
+
+var userCount int64
+var iSign uint64
 
 type StTarsTcpProxy struct {
 }
 
 func (outInfo *StTarsTcpProxy) InitProxy() {}
 func (outInfo *StTarsTcpProxy) TcpProxyGet() interface{} {
-	return new(stTarsTcpProxy)
+	temp := new(stTarsTcpProxy)
+	temp.iSign = atomic.AddUint64(&iSign, 1)
+	return temp
 }
 func (outInfo *StTarsTcpProxy) Verify(info interface{}) error {
 	tempInfo, ok := info.(*stTarsTcpProxy)
@@ -66,6 +73,7 @@ func (outInfo *StTarsTcpProxy) Close(info interface{}) {
 		common.Errorf("fail to convert")
 		return
 	}
+	tempInfo.isExit = CONNECT_CLOSE
 	tempInfo.Close()
 	return
 }
@@ -74,8 +82,9 @@ type stTarsTcpProxy struct {
 	privateKey *rsa.PrivateKey
 	uid        uint64
 	reader     chan []byte
-	mapServer  syncmap.Map
-	isExit     int
+	mapServer  syncmap.Map //
+	isExit     int         //是否退出
+	iSign      uint64      //结构体对象唯一标识
 }
 
 var mapApp map[uint32]string
@@ -244,14 +253,14 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 		addr := fmt.Sprintf("%d%d", IPString2Long(point.Host), point.Port)
 		appObjTemp, ok := info.mapServer.Load(addr)
 		if !ok {
-			common.Infof("first.%d", key)
+			common.Infof("first.%s", key)
 			appObj = new(Server)
 			comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
 			info.mapServer.Store(addr, appObj)
 		} else {
 			appObj, ok = appObjTemp.(*Server)
 			if !ok {
-				common.Infof("first.%d", key)
+				common.Infof("first.%s", key)
 				info.mapServer.Delete(addr)
 				appObj = new(Server)
 				comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
@@ -329,13 +338,36 @@ func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
 			common.Errorf("authentication token fail.%v.%v.%v", string(output.GetExtend()), secret, err)
 			return err
 		} else {
-			if tempV, ok := mapUser.Load(claims.Userid); ok {
+			if tempV, ok := mapUser.Load(claims.Uid); ok { //有同进程用户
 				if v, ok := tempV.(*stTarsTcpProxy); ok {
-					if v.uid != info.uid && 0 != info.uid {
-						mapUser.Delete(info.uid)
+					common.Infof("%v \n%v \n%v \n%v \n%v \n%v\n%v \n%v\n", v.iSign, info.iSign, v, info, &v, &info, *v, *info)
+					if v.iSign != info.iSign { //不同连接
+						//先关闭另一个连接
+						v.isExit = CONNECT_CLOSE
+						v.Close()
+						if 0 != info.uid {
+							//连接已校验成功，变更用户，用户数不变
+							mapUser.Delete(info.uid)
+						} else {
+							//新连接，第一次校验成功，用户数加1
+							atomic.AddInt64(&userCount, 1)
+						}
+						common.Infof("same connect.modify user.uid=old %d,new %d,userCount=%d", info.uid, claims.Uid, userCount)
+						info.uid = claims.Uid
+						mapUser.Store(info.uid, info)
 					}
-					info.uid = v.uid
+				}
+			} else { //没有同进程用户，新用户
+				if 0 != info.uid { //新用户，同连接
+					common.Infof("same connect.modify user.uid=old %d,new %d,userCount=%d", info.uid, claims.Uid, userCount)
+					mapUser.Delete(info.uid)
+					info.uid = claims.Uid
 					mapUser.Store(info.uid, info)
+				} else { //新用户，新连接
+					info.uid = claims.Uid
+					mapUser.Store(info.uid, info)
+					atomic.AddInt64(&userCount, 1)
+					common.Infof("add connect.uid=%d,userCount=%d.%v", info.uid, userCount, info)
 				}
 			}
 		}
@@ -380,10 +412,16 @@ func (info *stTarsTcpProxy) objFind(reqOut *MsgHead) (strObj string, err error) 
 }
 
 func (info *stTarsTcpProxy) Close() {
-	_, ok := mapUser.Load(info.uid)
-	if ok {
-		mapUser.Delete(info.uid)
+	if tempV, ok := mapUser.Load(info.uid); ok {
+		if v, ok := tempV.(*stTarsTcpProxy); ok {
+			if CONNECT_CLOSE == v.isExit {
+				common.Infof("close.uid=%d,userCount=%d", info.uid, userCount)
+				mapUser.Delete(info.uid)
+				atomic.AddInt64(&userCount, -1)
+			}
+		}
 	}
+	common.Infof("close.uid=%d,userCount=%d,%v", info.uid, userCount, info)
 }
 
 func HandleQueue(b []byte) {
@@ -399,7 +437,7 @@ func HandleQueue(b []byte) {
 			v, ok := tempV.(*stTarsTcpProxy)
 			if ok {
 				common.Infof("user exit.uid=%d", req.GetUid())
-				v.isExit = 1
+				v.isExit = CONNECT_CLOSE
 				return
 			}
 		}

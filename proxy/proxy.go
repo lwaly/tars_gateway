@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/lwaly/tars_gateway/common"
 )
@@ -38,22 +39,41 @@ func InitProxy() {
 
 func ProxyTcpHandle(session *Session, conn net.Conn) {
 	var wg sync.WaitGroup
-	var uid int64
 	infoTcpProxy := session.controller.TcpProxyGet()
-	infoProtocol := session.codec.NewCodec(conn, 2, 45)
+	infoProtocol := session.codec.NewCodec(conn, 1, 45)
 	defer session.Close(infoProtocol)
+	ticker := time.NewTicker(time.Millisecond * 500)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		for {
+			select {
+			case <-ticker.C:
+				if 0 != session.controller.IsExit(infoTcpProxy) {
+					common.Infof("connect close.")
+					session.NoticeClose(infoProtocol)
+					return
+				}
+			}
+		}
+	}()
+
 	for {
 		body, reqTemp, err, n := session.Receive(infoProtocol)
 		if 0 != session.controller.IsExit(infoTcpProxy) {
-			common.Infof("connect close.uid=%d.len=%d", uid, n)
+			common.Infof("connect close.n=%d", n)
 			session.NoticeClose(infoProtocol)
 			break
 		}
+
 		if err != nil && "EOF" != err.Error() {
 			common.Errorf("fail to get msg.%s", err.Error())
+			session.NoticeClose(infoProtocol)
 			break
 		} else if err != nil && "EOF" == err.Error() {
 			common.Infof("msg end.")
+			session.NoticeClose(infoProtocol)
 			break
 		}
 
