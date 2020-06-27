@@ -29,7 +29,9 @@ var iSign uint64
 type StTarsTcpProxy struct {
 }
 
-func (outInfo *StTarsTcpProxy) InitProxy() {}
+func (outInfo *StTarsTcpProxy) InitProxy() {
+	util.InitQueue(util.HandlerQueueFunc(HandleQueue))
+}
 func (outInfo *StTarsTcpProxy) TcpProxyGet() interface{} {
 	temp := new(stTarsTcpProxy)
 	temp.iSign = atomic.AddUint64(&iSign, 1)
@@ -173,7 +175,6 @@ func init() {
 }
 
 func (info *stTarsTcpProxy) InitProxy() {
-	util.InitQueue(util.HandlerQueueFunc(HandleQueue))
 }
 
 func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut interface{}, err error) {
@@ -369,6 +370,7 @@ func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
 					atomic.AddInt64(&userCount, 1)
 					common.Infof("add connect.uid=%d,userCount=%d.%v", info.uid, userCount, info)
 				}
+				userLoginNotify(info.uid)
 			}
 		}
 
@@ -443,4 +445,14 @@ func HandleQueue(b []byte) {
 		}
 	}
 	return
+}
+
+func userLoginNotify(uid uint64) {
+	info := LoginNotifyReq{Uid: uid}
+	b, err := proto.Marshal(&info)
+	if err != nil {
+		common.Errorf("faile to Marshal msg.err: %v", err)
+		return
+	}
+	util.QueueSend("tars_gateway", b, 1, uint32(ECmd_E_LOGIN_NOTIFY_REQ))
 }

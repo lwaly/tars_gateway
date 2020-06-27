@@ -4,6 +4,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/lwaly/tars_gateway/common"
@@ -29,6 +30,7 @@ type stQueue struct {
 }
 
 var queue stQueue
+var seq uint32
 
 type HandlerQueueFunc func(b []byte)
 
@@ -113,6 +115,7 @@ func connectQueue() (err error) {
 		return
 	}
 
+	common.Errorf("group_object.%v", queue.group_object)
 	sGroupOb := strings.Split(queue.group_object, " ")
 	for i := 0; i < len(sGroupOb); {
 		_, err = queue.gConn.QueueSubscribe(sGroupOb[i+1], sGroupOb[i], queueHandle, queue.startOpt, stan.DurableName(queue.durable), stan.SetManualAckMode())
@@ -145,9 +148,9 @@ func queueHandle(msg *stan.Msg) {
 	return
 }
 
-func queueSend(subj string, b []byte, cmd uint32) (err error) {
+func QueueSend(subj string, b []byte, version, cmd uint32) (err error) {
 	common.Infof("cmd.%d", cmd)
-	req := protocol.Request{Version: 1, Servant: cmd, Seq: 1, Uid: queue.machine, Body: b}
+	req := protocol.Request{Version: version, Servant: cmd, Seq: atomic.AddUint32(&seq, 1), Uid: queue.machine, Body: b}
 	b, err = proto.Marshal(&req)
 	if err != nil {
 		common.Errorf("faile to Marshal msg.err: %v", err)
