@@ -1,18 +1,23 @@
 [tcp]
-    machine=1
+    #涉及时间的都是毫秒，限速统计单位是字节
     addr=192.168.89.13:8080
-    timeout=2
-    heartbeat=100
-    maxConn=10000
+    timeout=1000
+    heartbeat=45000
+    max_conn=1
+    rate=100
+    rate_per=100
+    #流量统计间隔
+    per=1000 
 [tars]
     ip=192.168.89.66
     port=17890
-    refreshInterval=120
 [app]
     test=1 2 User
 [log]
     path=./
     level=0
+    #minute hour day week month
+    unit=week 
 [token]
     secret=test
 [queue]
@@ -21,6 +26,7 @@
     client=gateway
     group_object=gateway gateway
     durable=gateway
-    start_way=deliverLast   #startSeq or deliverLast or deliverAll or startDelta
+    #startSeq or deliverLast or deliverAll or startDelta
+    start_way=deliverLast   
     gateway_object=gateway
     machine=1

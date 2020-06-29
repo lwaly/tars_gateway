@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	_ "net/http/pprof"
 	"os"
 
@@ -12,12 +11,7 @@ import (
 
 func main() {
 	proxy.InitProxy()
-	str, err := common.Conf.GetValue("tcp", "addr")
-	if nil != err {
-		fmt.Printf("fail to get log path")
-		return
-	}
-	server, err := proxy.Listen("tcp", str, &proxy_tars.ProtoProtocol{}, proxy.HandlerFunc(proxy.ProxyTcpHandle), &proxy_tars.StTarsTcpProxy{})
+	server, err := proxy.Listen(&proxy_tars.ProtoProtocol{}, proxy.HandlerFunc(proxy.ProxyTcpHandle), &proxy_tars.StTarsTcpProxy{})
 	if err != nil {
 		common.Errorf("%v", err)
 		os.Exit(1)

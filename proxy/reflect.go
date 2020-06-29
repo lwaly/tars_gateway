@@ -36,6 +36,7 @@ func NewReflectServer(listener net.Listener, protocol protocol.Protocol, handler
 }
 
 func (server *ReflectServer) Serve() error {
+	common.Infof("start tcp server.addr=%s", lstTcpProxy.strAddrTcp)
 	for {
 		conn, err := Accept(server.listener)
 		if err != nil {
@@ -64,8 +65,8 @@ func (server *ReflectServer) Stop() {
 	server.listener.Close()
 }
 
-func Listen(network, address string, protocol protocol.Protocol, handler Handler, controller Controller) (*ReflectServer, error) {
-	listener, err := net.Listen(network, address)
+func Listen(protocol protocol.Protocol, handler Handler, controller Controller) (*ReflectServer, error) {
+	listener, err := net.Listen("tcp", lstTcpProxy.strAddrTcp)
 	if err != nil {
 		return nil, err
 	}

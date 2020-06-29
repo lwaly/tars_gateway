@@ -72,7 +72,7 @@ type protoProtocol struct {
 func (sc *protoProtocol) Receive() (interface{}, interface{}, error, int) {
 	var headLength [39]byte
 HEAD_LENGTH:
-	sc.conn.SetReadDeadline(time.Now().Add(sc.timeOut * time.Second))
+	sc.conn.SetReadDeadline(time.Now().Add(sc.timeOut * time.Millisecond))
 	n, err := io.ReadFull(sc.conn, headLength[:])
 
 	if sc.IsClose {
@@ -112,7 +112,7 @@ HEAD_LENGTH:
 
 	var head [5]byte
 HEAD:
-	sc.conn.SetReadDeadline(time.Now().Add(sc.timeOut * time.Second))
+	sc.conn.SetReadDeadline(time.Now().Add(sc.timeOut * time.Millisecond))
 	n, err = io.ReadFull(sc.conn, head[:])
 
 	if sc.IsClose {
@@ -142,7 +142,7 @@ HEAD:
 
 	buf := make([]byte, req.GetBodyLen())
 BODY:
-	sc.conn.SetReadDeadline(time.Now().Add(sc.timeOut * time.Second))
+	sc.conn.SetReadDeadline(time.Now().Add(sc.timeOut * time.Millisecond))
 	n, err = io.ReadFull(sc.conn, buf)
 
 	if sc.IsClose {
@@ -181,7 +181,7 @@ func (sc *protoProtocol) Send(msg interface{}) error {
 
 	buff := sc.preBuf.Bytes()
 	//数据写入
-	sc.conn.SetWriteDeadline(time.Now().Add(sc.timeOut * time.Second))
+	sc.conn.SetWriteDeadline(time.Now().Add(sc.timeOut * time.Millisecond))
 	_, err := sc.conn.Write(buff)
 	if err != nil {
 		return err

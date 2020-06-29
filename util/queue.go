@@ -115,7 +115,7 @@ func connectQueue() (err error) {
 		return
 	}
 
-	common.Errorf("group_object.%v", queue.group_object)
+	common.Infof("group_object.%v", queue.group_object)
 	sGroupOb := strings.Split(queue.group_object, " ")
 	for i := 0; i < len(sGroupOb); {
 		_, err = queue.gConn.QueueSubscribe(sGroupOb[i+1], sGroupOb[i], queueHandle, queue.startOpt, stan.DurableName(queue.durable), stan.SetManualAckMode())
