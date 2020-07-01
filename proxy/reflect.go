@@ -8,35 +8,39 @@ import (
 
 	"github.com/lwaly/tars_gateway/common"
 	"github.com/lwaly/tars_gateway/protocol"
+	"github.com/lwaly/tars_gateway/util"
 )
 
 type ReflectServer struct {
-	listener     net.Listener
-	protocol     protocol.Protocol //数据收发
-	handler      Handler
-	controller   Controller //业务处理
-	sendChSize   int
-	timeOut      int
-	heartbeat    int
-	rateLimitObj string
+	listener       net.Listener
+	protocol       protocol.Protocol //数据收发
+	handler        Handler
+	controller     Controller //业务处理
+	sendChSize     int
+	timeOut        int
+	heartbeat      int
+	rateLimitObj   string
+	stTcpProxyConf *StTcpProxyConf
 }
 
-func NewReflectServer(listener net.Listener, protocol protocol.Protocol, handler Handler, controller Controller) (*ReflectServer, error) {
+func NewReflectServer(stTcpProxyConf *StTcpProxyConf, listener net.Listener, protocol protocol.Protocol, handler Handler, controller Controller) (*ReflectServer, error) {
 	if nil == controller {
 		panic("Controller is nil")
 	}
 
+	util.InitRateLimit(stTcpProxyConf.StrObj, stTcpProxyConf.MaxRate, stTcpProxyConf.MaxRatePer, stTcpProxyConf.Per)
 	controller.InitProxy()
 	return &ReflectServer{
-		listener:   listener,
-		protocol:   protocol,
-		handler:    handler,
-		controller: controller,
+		listener:       listener,
+		protocol:       protocol,
+		handler:        handler,
+		controller:     controller,
+		stTcpProxyConf: stTcpProxyConf,
 	}, nil
 }
 
 func (server *ReflectServer) Serve() error {
-	common.Infof("start tcp server.addr=%s", lstTcpProxy.strAddrTcp)
+	common.Infof("start tcp server.addr=%s", server.stTcpProxyConf.StrAddr)
 	for {
 		conn, err := Accept(server.listener)
 		if err != nil {
@@ -54,7 +58,7 @@ func (server *ReflectServer) Listener() net.Listener {
 
 func (server *ReflectServer) handleConnection(conn net.Conn) {
 	if session := NewSession(server.protocol, server.controller); nil != session {
-		server.handler.HandleSession(session, conn)
+		server.handler.HandleSession(session, conn, server.stTcpProxyConf)
 	} else {
 		common.Errorf("fail to create session.")
 	}
@@ -65,13 +69,13 @@ func (server *ReflectServer) Stop() {
 	server.listener.Close()
 }
 
-func Listen(protocol protocol.Protocol, handler Handler, controller Controller) (*ReflectServer, error) {
-	listener, err := net.Listen("tcp", lstTcpProxy.strAddrTcp)
+func Listen(network string, stTcpProxyConf *StTcpProxyConf, protocol protocol.Protocol, handler Handler, controller Controller) (*ReflectServer, error) {
+	listener, err := net.Listen(network, stTcpProxyConf.StrAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewReflectServer(listener, protocol, handler, controller)
+	return NewReflectServer(stTcpProxyConf, listener, protocol, handler, controller)
 }
 
 func Accept(listener net.Listener) (net.Conn, error) {

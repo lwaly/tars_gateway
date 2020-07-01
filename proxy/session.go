@@ -28,14 +28,14 @@ type Session struct {
 type (
 	//会话处理器
 	Handler interface {
-		HandleSession(session *Session, conn net.Conn)
+		HandleSession(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf)
 	}
 
-	HandlerFunc func(session *Session, conn net.Conn)
+	HandlerFunc func(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf)
 )
 
-func (hf HandlerFunc) HandleSession(session *Session, conn net.Conn) {
-	hf(session, conn)
+func (hf HandlerFunc) HandleSession(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf) {
+	hf(session, conn, stTcpProxyConf)
 }
 
 //新建会话

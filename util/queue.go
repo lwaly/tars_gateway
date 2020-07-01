@@ -36,7 +36,7 @@ type HandlerQueueFunc func(b []byte)
 
 func InitQueue(handlerQueue HandlerQueueFunc) {
 	if nil == handlerQueue {
-		common.Errorf("handlerQueue nil.")
+		common.Warnf("handlerQueue nil.")
 		return
 	}
 	queue.addr, _ = common.Conf.GetValue("queue", "addr")

@@ -7,7 +7,16 @@
     rate=100
     rate_per=100
     #流量统计间隔
+    per=1000
+    obj=tars_tcp
+    secret=test
+[http]
+    #涉及时间的都是毫秒
+    addr=192.168.89.13:18080
+    max_conn=1
+    #流量统计间隔
     per=1000 
+    secret=test
 [tars]
     ip=192.168.89.66
     port=17890
@@ -18,8 +27,6 @@
     level=0
     #minute hour day week month
     unit=week 
-[token]
-    secret=test
 [queue]
     addr=nats://192.168.89.66:4222
     cluster=test

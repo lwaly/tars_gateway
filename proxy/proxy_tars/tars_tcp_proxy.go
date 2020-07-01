@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 
 	"github.com/lwaly/tars_gateway/common"
-	. "github.com/lwaly/tars_gateway/common"
 	"github.com/lwaly/tars_gateway/util"
 
 	"github.com/TarsCloud/TarsGo/tars"
@@ -18,66 +17,26 @@ import (
 	"golang.org/sync/syncmap"
 )
 
-const BITS = 2048
-const CMD_LOGOUT = 1999
-const CMD_HEART uint32 = 101
-const CONNECT_CLOSE int = 1
+const (
+	BITS                 = 2048
+	CMD_LOGOUT           = 1999
+	CMD_HEART     uint32 = 101
+	CONNECT_CLOSE int    = 1
+)
 
-var userCount int64
-var iSign uint64
+var (
+	userCount      int64
+	iSign          uint64
+	mapApp         map[uint32]string
+	mapServer      map[string]map[uint32]string
+	comm           *tars.Communicator
+	mapTcpEndpoint map[string]*tars.EndpointManager
+	mapUser        syncmap.Map
+	fileLock       *flock.Flock
+	secret_tcp     = "test"
+)
 
 type StTarsTcpProxy struct {
-}
-
-func (outInfo *StTarsTcpProxy) InitProxy() {
-	util.InitQueue(util.HandlerQueueFunc(HandleQueue))
-}
-func (outInfo *StTarsTcpProxy) TcpProxyGet() interface{} {
-	temp := new(stTarsTcpProxy)
-	temp.iSign = atomic.AddUint64(&iSign, 1)
-	return temp
-}
-func (outInfo *StTarsTcpProxy) Verify(info interface{}) error {
-	tempInfo, ok := info.(*stTarsTcpProxy)
-	if !ok {
-		common.Errorf("fail to convert")
-		return errors.New("fail to convert")
-	}
-	return tempInfo.Verify()
-}
-func (outInfo *StTarsTcpProxy) HandleReq(info, body, reqTemp interface{}) (output, reqOut interface{}, err error) {
-	tempInfo, ok := info.(*stTarsTcpProxy)
-	if !ok {
-		common.Errorf("fail to convert")
-		return nil, nil, errors.New("fail to convert")
-	}
-	return tempInfo.HandleReq(body, reqTemp)
-}
-func (outInfo *StTarsTcpProxy) HandleRsp(info, output, reqOut interface{}) (outHeadRsp []byte, err error) {
-	tempInfo, ok := info.(*stTarsTcpProxy)
-	if !ok {
-		common.Errorf("fail to convert")
-		return nil, errors.New("fail to convert")
-	}
-	return tempInfo.HandleRsp(output, reqOut)
-}
-func (outInfo *StTarsTcpProxy) IsExit(info interface{}) int {
-	tempInfo, ok := info.(*stTarsTcpProxy)
-	if !ok {
-		common.Errorf("fail to convert")
-		return 0
-	}
-	return tempInfo.IsExit()
-}
-func (outInfo *StTarsTcpProxy) Close(info interface{}) {
-	tempInfo, ok := info.(*stTarsTcpProxy)
-	if !ok {
-		common.Errorf("fail to convert")
-		return
-	}
-	tempInfo.isExit = CONNECT_CLOSE
-	tempInfo.Close()
-	return
 }
 
 type stTarsTcpProxy struct {
@@ -89,16 +48,6 @@ type stTarsTcpProxy struct {
 	iSign      uint64      //结构体对象唯一标识
 }
 
-var mapApp map[uint32]string
-var mapServer map[string]map[uint32]string
-var comm *tars.Communicator
-var mapTcpEndpoint map[string]*tars.EndpointManager
-
-var mapUser syncmap.Map
-
-var fileLock *flock.Flock
-var secret = "test"
-
 func init() {
 	mapTcpEndpoint = make(map[string]*tars.EndpointManager)
 
@@ -107,8 +56,10 @@ func init() {
 	mapUser.Store(uint64(0), &stTarsTcpProxy{reader: make(chan []byte)})
 
 	fileLock = flock.New("/var/lock/gateway-lock.lock")
+}
 
-	secret, _ = common.Conf.GetValue("token", "secret")
+func (outInfo *StTarsTcpProxy) InitProxy() {
+	secret_tcp, _ = common.Conf.GetValue("tcp", "secret")
 
 	mapTemp, err := common.Conf.GetSection("app")
 	if nil != err {
@@ -172,6 +123,55 @@ func init() {
 	addr := fmt.Sprintf("tars.tarsregistry.QueryObj@tcp -h %s -p %s -t 10000", ip, port)
 	comm = tars.NewCommunicator()
 	comm.SetLocator(addr)
+
+	util.InitQueue(util.HandlerQueueFunc(HandleQueue))
+}
+func (outInfo *StTarsTcpProxy) TcpProxyGet() interface{} {
+	temp := new(stTarsTcpProxy)
+	temp.iSign = atomic.AddUint64(&iSign, 1)
+	return temp
+}
+func (outInfo *StTarsTcpProxy) Verify(info interface{}) error {
+	tempInfo, ok := info.(*stTarsTcpProxy)
+	if !ok {
+		common.Errorf("fail to convert")
+		return errors.New("fail to convert")
+	}
+	return tempInfo.Verify()
+}
+func (outInfo *StTarsTcpProxy) HandleReq(info, body, reqTemp interface{}) (output, reqOut interface{}, err error) {
+	tempInfo, ok := info.(*stTarsTcpProxy)
+	if !ok {
+		common.Errorf("fail to convert")
+		return nil, nil, errors.New("fail to convert")
+	}
+	return tempInfo.HandleReq(body, reqTemp)
+}
+func (outInfo *StTarsTcpProxy) HandleRsp(info, output, reqOut interface{}) (outHeadRsp []byte, err error) {
+	tempInfo, ok := info.(*stTarsTcpProxy)
+	if !ok {
+		common.Errorf("fail to convert")
+		return nil, errors.New("fail to convert")
+	}
+	return tempInfo.HandleRsp(output, reqOut)
+}
+func (outInfo *StTarsTcpProxy) IsExit(info interface{}) int {
+	tempInfo, ok := info.(*stTarsTcpProxy)
+	if !ok {
+		common.Errorf("fail to convert")
+		return 0
+	}
+	return tempInfo.IsExit()
+}
+func (outInfo *StTarsTcpProxy) Close(info interface{}) {
+	tempInfo, ok := info.(*stTarsTcpProxy)
+	if !ok {
+		common.Errorf("fail to convert")
+		return
+	}
+	tempInfo.isExit = CONNECT_CLOSE
+	tempInfo.Close()
+	return
 }
 
 func (info *stTarsTcpProxy) InitProxy() {
@@ -207,13 +207,13 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 	if (1 == reqOutTemp.GetEncrypt()) && (nil != info.privateKey) {
 		if rspBody.Body, err = util.Decrypt(rspBody.Body, info.privateKey); nil != err {
 			common.Errorf("fail to Decrypt msg")
-			err = errors.New(ErrUnknown)
+			err = errors.New(common.ErrUnknown)
 			return
 		}
 	} else if (2 == reqOutTemp.GetEncrypt()) && (nil != info.privateKey) {
 		if rspBody.Body, err = util.DecryptPkcs(rspBody.Body, info.privateKey); nil != err {
 			common.Errorf("fail to Decrypt msg")
-			err = errors.New(ErrUnknown)
+			err = errors.New(common.ErrUnknown)
 			return
 		}
 	} else if 3 == reqOutTemp.GetEncrypt() || nil == info.privateKey || 0 == reqOutTemp.GetBodyLen() {
@@ -251,7 +251,7 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 	point := manager.GetNextEndpoint()
 	if nil != point {
 		var appObj *Server
-		addr := fmt.Sprintf("%d%d", IPString2Long(point.Host), point.Port)
+		addr := fmt.Sprintf("%d%d", common.IPString2Long(point.Host), point.Port)
 		appObjTemp, ok := info.mapServer.Load(addr)
 		if !ok {
 			common.Infof("first.%s", key)
@@ -335,8 +335,8 @@ func (info *stTarsTcpProxy) IsExit() int {
 func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
 	//扩展字段有值，认为是客户端重新认证，更换秘钥
 	if 0 != len(output.GetExtend()) {
-		if claims, err := util.TokenAuth(string(output.GetExtend()), secret); nil != err {
-			common.Errorf("authentication token fail.%v.%v.%v", string(output.GetExtend()), secret, err)
+		if claims, err := util.TokenAuth(string(output.GetExtend()), secret_tcp); nil != err {
+			common.Errorf("authentication token fail.%v.%v.%v", string(output.GetExtend()), secret_tcp, err)
 			return err
 		} else {
 			if tempV, ok := mapUser.Load(claims.Uid); ok { //有同进程用户
