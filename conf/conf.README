@@ -1,0 +1,60 @@
+{
+    "tcp":{
+        //涉及时间的都是毫秒，限速统计单位是字节
+        "addr":"192.168.89.13:8080",
+        "timeout":1000,
+        "heartbeat":45000,
+        //最大连接数
+		"maxConn": 1,
+        //最大数据接收字节
+		"maxRate": 100,
+        //每个连接最大数据接收字节
+		"maxRatePer": 100,
+        //流量统计间隔
+        "per":1000,
+        //限速对象
+        "obj":"tars_tcp",
+        //token秘钥
+        "secret":"test",
+        //路由方式，1：轮询，2：hash
+		"routeType": 1,
+    },
+    "http":{
+        //涉及时间的都是毫秒
+        "addr":"192.168.89.13:18080",
+	"maxConn": 1,
+        //流量统计间隔
+        "per":1000 ,
+        "secret":"test",
+		"routeType": 1
+    },
+    "tars":{
+        "ip":"192.168.89.66",
+        "port":17890
+    },
+	"app": [{
+		"name": "test",
+		"id": 1,
+		"server": [{
+			"name": "test",
+			"id": 1
+		}]
+	}],
+    "log":{
+        "path":"./",
+        "level":0,
+        //minute hour day week month
+        "unit":"week"
+    },
+    "queue":{
+		"addr": "nats://192.168.89.66:4222",
+		"cluster": "test",
+		"client": "gateway",
+		"groupObject": "gateway gateway",
+		"durable": "gateway",
+        //startSeq or deliverLast or deliverAll or startDelta
+		"startWay": "deliverLast",
+		"gatewayObject": "gateway",
+		"machine": 1
+    }
+}

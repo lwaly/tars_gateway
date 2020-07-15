@@ -4,14 +4,13 @@ import (
 	"crypto/rsa"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
 	"sync/atomic"
 
 	"github.com/lwaly/tars_gateway/common"
 	"github.com/lwaly/tars_gateway/util"
 
 	"github.com/TarsCloud/TarsGo/tars"
+	"github.com/TarsCloud/TarsGo/tars/util/endpoint"
 	"github.com/gofrs/flock"
 	"github.com/golang/protobuf/proto"
 	"golang.org/sync/syncmap"
@@ -25,18 +24,30 @@ const (
 )
 
 var (
+	mapUser syncmap.Map
+	comm    *tars.Communicator
+)
+
+type StServer struct {
+	Id   uint32 `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+type StApp struct {
+	Id     uint32     `json:"id,omitempty"`
+	Name   string     `json:"name,omitempty"`
+	Server []StServer `json:"server,omitempty"`
+}
+
+type StTarsTcpProxy struct {
 	userCount      int64
 	iSign          uint64
 	mapApp         map[uint32]string
 	mapServer      map[string]map[uint32]string
-	comm           *tars.Communicator
 	mapTcpEndpoint map[string]*tars.EndpointManager
-	mapUser        syncmap.Map
 	fileLock       *flock.Flock
-	secret_tcp     = "test"
-)
-
-type StTarsTcpProxy struct {
+	Secret         string `json:"secret,omitempty"`
+	RouteType      int    `json:"routeType,omitempty"`
 }
 
 type stTarsTcpProxy struct {
@@ -46,91 +57,93 @@ type stTarsTcpProxy struct {
 	mapServer  syncmap.Map //
 	isExit     int         //是否退出
 	iSign      uint64      //结构体对象唯一标识
+	outInfo    *StTarsTcpProxy
 }
 
-func init() {
-	mapTcpEndpoint = make(map[string]*tars.EndpointManager)
-
-	mapApp = make(map[uint32]string)
-	mapServer = make(map[string]map[uint32]string)
-	mapUser.Store(uint64(0), &stTarsTcpProxy{reader: make(chan []byte)})
-
-	fileLock = flock.New("/var/lock/gateway-lock.lock")
-}
-
-func (outInfo *StTarsTcpProxy) InitProxy() {
-	secret_tcp, _ = common.Conf.GetValue("tcp", "secret")
-
-	mapTemp, err := common.Conf.GetSection("app")
-	if nil != err {
-		fmt.Printf("fail to get app info")
+func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
+	if err = common.Conf.GetStruct("tcp", outInfo); nil != err {
+		common.Errorf("fail to get app info")
 		return
 	}
-	for key, value := range mapTemp {
-		s := strings.Split(value, " ")
-		if 0 == len(s) {
-			fmt.Println("fail to Split app info")
-			break
-		}
-		var appid int
-		if appid, err = strconv.Atoi(s[0]); err != nil {
-			fmt.Printf("fail to get app id")
-			return
-		}
-		_, ok := mapApp[uint32(appid)]
+
+	stApp := []StApp{}
+	if err = common.Conf.GetArray("app", &stApp); nil != err {
+		common.Errorf("fail to get app info")
+		return
+	}
+
+	for _, value := range stApp {
+		mapApp := make(map[uint32]string)
+		_, ok := mapApp[value.Id]
 		if ok {
-			fmt.Println("repeat app", appid)
-			break
+			common.Errorf("repeat app.%v", value)
+			continue
+		} else {
+			mapApp[value.Id] = value.Name
 		}
-		mapApp[uint32(appid)] = key
+
+		_, ok = outInfo.mapApp[value.Id]
+		if !ok {
+			outInfo.mapApp[value.Id] = value.Name
+		}
 
 		mTemp := make(map[uint32]string)
-
-		for index := 1; index < len(s); {
-			var serverId int
-			if serverId, err = strconv.Atoi(s[index]); err != nil {
-				fmt.Printf("fail to get app id")
-				return
-			}
-			_, ok := mTemp[uint32(serverId)]
+		for _, v := range value.Server {
+			_, ok := mTemp[v.Id]
 			if ok {
-				fmt.Println("repeat serverId", serverId)
-				return
+				common.Errorf("repeat serverId.%v", v)
+				continue
 			}
-			index++
-			mTemp[uint32(serverId)] = s[index]
-			index++
+			mTemp[v.Id] = v.Name
 		}
-		_, ok = mapServer[key]
-		if ok {
-			fmt.Println("repeat app", key)
-			break
-		}
-		mapServer[key] = mTemp
+
+		outInfo.mapServer[value.Name] = mTemp
 	}
-	ip, err := common.Conf.GetValue("tars", "ip")
-	if nil != err {
-		fmt.Printf("fail to get log path")
+	return
+}
+
+func (outInfo *StTarsTcpProxy) InitProxy() (err error) {
+	outInfo.mapTcpEndpoint = make(map[string]*tars.EndpointManager)
+
+	outInfo.mapApp = make(map[uint32]string)
+	outInfo.mapServer = make(map[string]map[uint32]string)
+	mapUser.Store(uint64(0), &stTarsTcpProxy{reader: make(chan []byte)})
+
+	outInfo.fileLock = flock.New("/var/lock/gateway-lock.lock")
+
+	err = common.Conf.GetStruct("tars", outInfo)
+	if err != nil {
+		common.Errorf("fail to get tcp conf.%v", err)
 		return
 	}
 
-	port, err := common.Conf.GetValue("tars", "port")
-	if nil != err {
-		fmt.Printf("fail to get log path")
+	type StTarsAddr struct {
+		Ip   string `json:"ip,omitempty"`
+		Port int    `json:"port,omitempty"`
+	}
+	stTarsAddr := StTarsAddr{}
+	err = common.Conf.GetStruct("tars", &stTarsAddr)
+	if err != nil {
+		common.Errorf("fail to get tcp conf.%v", err)
 		return
 	}
-
-	addr := fmt.Sprintf("tars.tarsregistry.QueryObj@tcp -h %s -p %s -t 10000", ip, port)
+	addr := fmt.Sprintf("tars.tarsregistry.QueryObj@tcp -h %s -p %d -t 10000", stTarsAddr.Ip, stTarsAddr.Port)
 	comm = tars.NewCommunicator()
 	comm.SetLocator(addr)
 
 	util.InitQueue(util.HandlerQueueFunc(HandleQueue))
+
+	outInfo.ReloadConf()
+	return
 }
+
 func (outInfo *StTarsTcpProxy) TcpProxyGet() interface{} {
 	temp := new(stTarsTcpProxy)
-	temp.iSign = atomic.AddUint64(&iSign, 1)
+	temp.outInfo = outInfo
+	temp.iSign = atomic.AddUint64(&outInfo.iSign, 1)
 	return temp
 }
+
 func (outInfo *StTarsTcpProxy) Verify(info interface{}) error {
 	tempInfo, ok := info.(*stTarsTcpProxy)
 	if !ok {
@@ -139,6 +152,7 @@ func (outInfo *StTarsTcpProxy) Verify(info interface{}) error {
 	}
 	return tempInfo.Verify()
 }
+
 func (outInfo *StTarsTcpProxy) HandleReq(info, body, reqTemp interface{}) (output, reqOut interface{}, err error) {
 	tempInfo, ok := info.(*stTarsTcpProxy)
 	if !ok {
@@ -147,6 +161,7 @@ func (outInfo *StTarsTcpProxy) HandleReq(info, body, reqTemp interface{}) (outpu
 	}
 	return tempInfo.HandleReq(body, reqTemp)
 }
+
 func (outInfo *StTarsTcpProxy) HandleRsp(info, output, reqOut interface{}) (outHeadRsp []byte, err error) {
 	tempInfo, ok := info.(*stTarsTcpProxy)
 	if !ok {
@@ -155,6 +170,7 @@ func (outInfo *StTarsTcpProxy) HandleRsp(info, output, reqOut interface{}) (outH
 	}
 	return tempInfo.HandleRsp(output, reqOut)
 }
+
 func (outInfo *StTarsTcpProxy) IsExit(info interface{}) int {
 	tempInfo, ok := info.(*stTarsTcpProxy)
 	if !ok {
@@ -163,6 +179,7 @@ func (outInfo *StTarsTcpProxy) IsExit(info interface{}) int {
 	}
 	return tempInfo.IsExit()
 }
+
 func (outInfo *StTarsTcpProxy) Close(info interface{}) {
 	tempInfo, ok := info.(*stTarsTcpProxy)
 	if !ok {
@@ -185,9 +202,9 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 		err = errors.New("fail to convert head")
 		return
 	}
-	key := "1"
-	common.Infof("begin msg.server=%d.cmd=%d.Encrypt=%d.RouteId=%d.seq=%d.uid=%s",
-		reqOutTemp.GetServer(), reqOutTemp.GetServant(), reqOutTemp.GetEncrypt(), reqOutTemp.GetRouteId(), reqOutTemp.GetSeq(), key)
+
+	common.Infof("begin msg.server=%d.cmd=%d.Encrypt=%d.RouteId=%d.seq=%d",
+		reqOutTemp.GetServer(), reqOutTemp.GetServant(), reqOutTemp.GetEncrypt(), reqOutTemp.GetRouteId(), reqOutTemp.GetSeq())
 	if 0 == reqOutTemp.GetBodyLen() && CMD_HEART == reqOutTemp.GetServant() {
 		common.Infof("heart msg")
 		return
@@ -233,42 +250,48 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 	}
 
 	var manager *tars.EndpointManager
-	manager, ok = mapTcpEndpoint[obj]
+	manager, ok = info.outInfo.mapTcpEndpoint[obj]
 	if !ok {
 		bLock := false
-		bLock, err = fileLock.TryLock()
+		bLock, err = info.outInfo.fileLock.TryLock()
 		if nil != err || false == bLock {
 			err = errors.New("fail to TryLock")
 			return
 		}
-		defer fileLock.Unlock()
+		defer info.outInfo.fileLock.Unlock()
 		manager = new(tars.EndpointManager)
 		manager.Init(obj, comm)
-		mapTcpEndpoint[obj] = manager
+		info.outInfo.mapTcpEndpoint[obj] = manager
 		common.Infof("new EndpointManager. %s", obj)
 	}
 
-	point := manager.GetNextEndpoint()
+	var point *endpoint.Endpoint
+	if 1 == info.outInfo.RouteType {
+		point = manager.GetNextEndpoint()
+	} else if 2 == info.outInfo.RouteType {
+		point = manager.GetHashEndpoint(int64(reqOutTemp.GetRouteId()))
+	} else {
+		point = manager.GetNextEndpoint()
+	}
+
 	if nil != point {
 		var appObj *Server
 		addr := fmt.Sprintf("%d%d", common.IPString2Long(point.Host), point.Port)
 		appObjTemp, ok := info.mapServer.Load(addr)
+
 		if !ok {
-			common.Infof("first.%s", key)
 			appObj = new(Server)
 			comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
 			info.mapServer.Store(addr, appObj)
 		} else {
 			appObj, ok = appObjTemp.(*Server)
 			if !ok {
-				common.Infof("first.%s", key)
 				info.mapServer.Delete(addr)
 				appObj = new(Server)
 				comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
 				info.mapServer.Store(addr, appObj)
 			}
 		}
-
 		input := Request{Version: reqOutTemp.GetVersion(), Servant: reqOutTemp.GetServant(), Seq: reqOutTemp.GetSeq(), Uid: reqOutTemp.GetRouteId(), Body: rspBody.GetBody()}
 		outputTemp, err := appObj.Handle(input)
 		if err != nil {
@@ -335,8 +358,8 @@ func (info *stTarsTcpProxy) IsExit() int {
 func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
 	//扩展字段有值，认为是客户端重新认证，更换秘钥
 	if 0 != len(output.GetExtend()) {
-		if claims, err := util.TokenAuth(string(output.GetExtend()), secret_tcp); nil != err {
-			common.Errorf("authentication token fail.%v.%v.%v", string(output.GetExtend()), secret_tcp, err)
+		if claims, err := util.TokenAuth(string(output.GetExtend()), info.outInfo.Secret); nil != err {
+			common.Errorf("authentication token fail.%v.%v.%v", string(output.GetExtend()), info.outInfo.Secret, err)
 			return err
 		} else {
 			if tempV, ok := mapUser.Load(claims.Uid); ok { //有同进程用户
@@ -351,24 +374,24 @@ func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
 							mapUser.Delete(info.uid)
 						} else {
 							//新连接，第一次校验成功，用户数加1
-							atomic.AddInt64(&userCount, 1)
+							atomic.AddInt64(&info.outInfo.userCount, 1)
 						}
-						common.Infof("same connect.modify user.uid=old %d,new %d,userCount=%d", info.uid, claims.Uid, userCount)
+						common.Infof("same connect.modify user.uid=old %d,new %d,userCount=%d", info.uid, claims.Uid, info.outInfo.userCount)
 						info.uid = claims.Uid
 						mapUser.Store(info.uid, info)
 					}
 				}
 			} else { //没有同进程用户，新用户
 				if 0 != info.uid { //新用户，同连接
-					common.Infof("same connect.modify user.uid=old %d,new %d,userCount=%d", info.uid, claims.Uid, userCount)
+					common.Infof("same connect.modify user.uid=old %d,new %d,userCount=%d", info.uid, claims.Uid, info.outInfo.userCount)
 					mapUser.Delete(info.uid)
 					info.uid = claims.Uid
 					mapUser.Store(info.uid, info)
 				} else { //新用户，新连接
 					info.uid = claims.Uid
 					mapUser.Store(info.uid, info)
-					atomic.AddInt64(&userCount, 1)
-					common.Infof("add connect.uid=%d,userCount=%d.%v", info.uid, userCount, info)
+					atomic.AddInt64(&info.outInfo.userCount, 1)
+					common.Infof("add connect.uid=%d,userCount=%d.%v", info.uid, info.outInfo.userCount, info)
 				}
 				userLoginNotify(info.uid)
 			}
@@ -389,14 +412,14 @@ func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
 }
 
 func (info *stTarsTcpProxy) objFind(reqOut *MsgHead) (strObj string, err error) {
-	app, ok := mapApp[reqOut.GetApp()]
+	app, ok := info.outInfo.mapApp[reqOut.GetApp()]
 	if !ok {
 		common.Errorf("fail to get app name ", reqOut.GetApp())
 		err = errors.New("fail to get app name")
 		return
 	}
 
-	mapAppS, ok := mapServer[app]
+	mapAppS, ok := info.outInfo.mapServer[app]
 	if !ok {
 		common.Errorf("fail to get app name ", reqOut.GetApp())
 		err = errors.New("fail to get app name ")
@@ -417,13 +440,13 @@ func (info *stTarsTcpProxy) Close() {
 	if tempV, ok := mapUser.Load(info.uid); ok {
 		if v, ok := tempV.(*stTarsTcpProxy); ok {
 			if CONNECT_CLOSE == v.isExit {
-				common.Infof("close.uid=%d,userCount=%d", info.uid, userCount)
+				common.Infof("close.uid=%d,userCount=%d", info.uid, info.outInfo.userCount)
 				mapUser.Delete(info.uid)
-				atomic.AddInt64(&userCount, -1)
+				atomic.AddInt64(&info.outInfo.userCount, -1)
 			}
 		}
 	}
-	common.Infof("close.uid=%d,userCount=%d,%v", info.uid, userCount, info)
+	common.Infof("close.uid=%d,userCount=%d,%v", info.uid, info.outInfo.userCount, info)
 }
 
 func HandleQueue(b []byte) {

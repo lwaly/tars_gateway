@@ -72,6 +72,7 @@ func GetExternal() string {
 	content, _ := ioutil.ReadAll(resp.Body)
 	return string(content)
 }
+
 func GetIntranetIp() {
 	addrs, err := net.InterfaceAddrs()
 
@@ -93,6 +94,9 @@ func GetIntranetIp() {
 func InetAton(ipnr net.IP) int64 {
 	bits := strings.Split(ipnr.String(), ".")
 
+	if 4 > len(bits) {
+		return 0
+	}
 	b0, _ := strconv.Atoi(bits[0])
 	b1, _ := strconv.Atoi(bits[1])
 	b2, _ := strconv.Atoi(bits[2])

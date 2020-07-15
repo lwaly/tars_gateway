@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/lwaly/tars_gateway/common"
@@ -13,9 +12,6 @@ var mapKey24 map[string]int64
 var mutex sync.Mutex
 var g_seq uint32
 
-func init() {
-}
-
 func GetSeq() uint32 {
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -23,39 +19,36 @@ func GetSeq() uint32 {
 	return g_seq
 }
 
+type StLogConf struct {
+	Path  string `json:"path,omitempty"`
+	Level int    `json:"level,omitempty"`
+	Unit  string `json:"unit,omitempty"`
+}
+
 func InitProxy() {
 	//日志系统初始化
-	strPath, err := common.Conf.GetValue("log", "path")
-	if nil != err {
-		fmt.Printf("fail to get log path.%v", err)
+	stLogConf := StLogConf{}
+
+	err := common.Conf.GetStruct("log", &stLogConf)
+	if err != nil {
+		common.Errorf("fail to get tcp conf.%v", err)
 		return
 	}
 
-	strUnit, err := common.Conf.GetValue("log", "unit")
-	if nil != err {
-		fmt.Printf("fail to get log unit.%v", err)
-		return
-	}
 	//minute hour day week month
-	if "minute" == strUnit {
-		defer common.Start(common.LogFilePath(strPath), common.EveryMinute).Stop()
-	} else if "hour" == strUnit {
-		defer common.Start(common.LogFilePath(strPath), common.EveryHour).Stop()
-	} else if "day" == strUnit {
-		defer common.Start(common.LogFilePath(strPath), common.EveryDay).Stop()
-	} else if "week" == strUnit {
-		defer common.Start(common.LogFilePath(strPath), common.EveryWeek).Stop()
-	} else if "month" == strUnit {
-		defer common.Start(common.LogFilePath(strPath), common.EveryMonth).Stop()
+	if "minute" == stLogConf.Unit {
+		defer common.Start(common.LogFilePath(stLogConf.Path), common.EveryMinute).Stop()
+	} else if "hour" == stLogConf.Unit {
+		defer common.Start(common.LogFilePath(stLogConf.Path), common.EveryHour).Stop()
+	} else if "day" == stLogConf.Unit {
+		defer common.Start(common.LogFilePath(stLogConf.Path), common.EveryDay).Stop()
+	} else if "week" == stLogConf.Unit {
+		defer common.Start(common.LogFilePath(stLogConf.Path), common.EveryWeek).Stop()
+	} else if "month" == stLogConf.Unit {
+		defer common.Start(common.LogFilePath(stLogConf.Path), common.EveryMonth).Stop()
 	} else {
-		defer common.Start(common.LogFilePath(strPath), common.EveryHour).Stop()
+		defer common.Start(common.LogFilePath(stLogConf.Path), common.EveryHour).Stop()
 	}
 
-	level, err := common.Conf.Int("log", "level")
-	if nil != err {
-		fmt.Printf("fail to get log level.%v", err)
-		return
-	}
-
-	common.LevelSet(level)
+	common.LevelSet(stLogConf.Level)
 }

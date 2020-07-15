@@ -16,17 +16,17 @@ import (
 )
 
 type stQueue struct {
-	addr           string
-	cluster        string
-	client         string
-	group_object   string
-	durable        string
-	start_way      string
-	gateway_object string
-	handlerQueue   HandlerQueueFunc
-	machine        uint64
-	gConn          stan.Conn
-	startOpt       stan.SubscriptionOption
+	Addr          string `json:"addr,omitempty"`
+	Cluster       string `json:"cluster,omitempty"`
+	Client        string `json:"client,omitempty"`
+	GroupObject   string `json:"groupObject,omitempty"`
+	Durable       string `json:"durable,omitempty"`
+	StartWay      string `json:"startWay,omitempty"`
+	GatewayObject string `json:"gatewayObject,omitempty"`
+	Machine       uint64 `json:"machine,omitempty"`
+	handlerQueue  HandlerQueueFunc
+	gConn         stan.Conn
+	startOpt      stan.SubscriptionOption
 }
 
 var queue stQueue
@@ -39,32 +39,24 @@ func InitQueue(handlerQueue HandlerQueueFunc) {
 		common.Warnf("handlerQueue nil.")
 		return
 	}
-	queue.addr, _ = common.Conf.GetValue("queue", "addr")
-	queue.cluster, _ = common.Conf.GetValue("queue", "cluster")
-	queue.client, _ = common.Conf.GetValue("queue", "client")
-	queue.group_object, _ = common.Conf.GetValue("queue", "group_object")
-	queue.durable, _ = common.Conf.GetValue("queue", "durable")
-	queue.start_way, _ = common.Conf.GetValue("queue", "start_way")
-	queue.gateway_object, _ = common.Conf.GetValue("queue", "gateway_object")
 
-	machineTemp, _ := common.Conf.GetValue("queue", "machine")
-	if "" == machineTemp {
-		queue.machine = uint64(common.InetAton(net.ParseIP(common.GetExternal())))
-	} else {
-		if temp, err := strconv.ParseInt(machineTemp, 10, 64); nil != err {
-			common.Errorf("fail to parse machine.")
-			return
-		} else {
-			queue.machine = uint64(temp)
-		}
+	err := common.Conf.GetStruct("queue", &queue)
+	if err != nil {
+		common.Errorf("fail to parse Queue config.%v %v", err, queue)
+		return
 	}
+
+	if 0 == queue.Machine {
+		queue.Machine = uint64(common.InetAton(net.ParseIP(common.GetExternal())))
+	}
+
 	queue.handlerQueue = handlerQueue
-	if "" == queue.addr || "" == queue.cluster || "" == queue.client || "" == queue.group_object || "" == queue.durable || "" == queue.start_way || "" == queue.gateway_object {
+	if "" == queue.Addr || "" == queue.Cluster || "" == queue.Client || "" == queue.GroupObject || "" == queue.Durable || "" == queue.StartWay || "" == queue.GatewayObject {
 		common.Errorf("fail to get queue config.%v", queue)
 		return
 	}
 
-	s := strings.Split(queue.start_way, " ")
+	s := strings.Split(queue.StartWay, " ")
 	queue.startOpt = stan.StartAt(pb.StartPosition_NewOnly)
 	if 0 == strings.Compare(s[0], "startSeq") {
 		t, err := strconv.ParseInt(s[1], 10, 64)
@@ -100,7 +92,7 @@ func rconnect(_ stan.Conn, reason error) {
 AGAIN:
 	err = connectQueue()
 	if err != nil {
-		common.Errorf("Can't connect: %v.\nMake sure a NATS Streaming Server is running at: %s", err, queue.addr)
+		common.Errorf("Can't connect: %v.\nMake sure a NATS Streaming Server is running at: %s", err, queue.Addr)
 		time.Sleep(time.Duration(3) * time.Second)
 		goto AGAIN
 	}
@@ -109,16 +101,16 @@ AGAIN:
 }
 
 func connectQueue() (err error) {
-	queue.gConn, err = stan.Connect(queue.cluster, queue.client, stan.NatsURL(queue.addr), stan.SetConnectionLostHandler(rconnect))
+	queue.gConn, err = stan.Connect(queue.Cluster, queue.Client, stan.NatsURL(queue.Addr), stan.SetConnectionLostHandler(rconnect))
 	if err != nil {
-		common.Errorf("Can't connect: %v.\nMake sure a NATS Streaming Server is running at: %s", err, queue.addr)
+		common.Errorf("Can't connect: %v.\nMake sure a NATS Streaming Server is running at: %s", err, queue.Addr)
 		return
 	}
 
-	common.Infof("group_object.%v", queue.group_object)
-	sGroupOb := strings.Split(queue.group_object, " ")
+	common.Infof("GroupObject.%v", queue.GroupObject)
+	sGroupOb := strings.Split(queue.GroupObject, " ")
 	for i := 0; i < len(sGroupOb); {
-		_, err = queue.gConn.QueueSubscribe(sGroupOb[i+1], sGroupOb[i], queueHandle, queue.startOpt, stan.DurableName(queue.durable), stan.SetManualAckMode())
+		_, err = queue.gConn.QueueSubscribe(sGroupOb[i+1], sGroupOb[i], queueHandle, queue.startOpt, stan.DurableName(queue.Durable), stan.SetManualAckMode())
 		if err != nil {
 			queue.gConn.Close()
 			common.Errorf("fail to subscribe queue.%v %v", queue, err)
@@ -138,7 +130,7 @@ func queueHandle(msg *stan.Msg) {
 		common.Errorf("fail Unmarshal msg.%v", err)
 	} else {
 		common.Infof("cmd.%d", input.GetServant())
-		if input.Uid == queue.machine {
+		if input.Uid == queue.Machine {
 			common.Infof("own msg")
 		} else {
 			queue.handlerQueue(input.GetBody())
@@ -150,7 +142,7 @@ func queueHandle(msg *stan.Msg) {
 
 func QueueSend(subj string, b []byte, version, cmd uint32) (err error) {
 	common.Infof("cmd.%d", cmd)
-	req := protocol.Request{Version: version, Servant: cmd, Seq: atomic.AddUint32(&seq, 1), Uid: queue.machine, Body: b}
+	req := protocol.Request{Version: version, Servant: cmd, Seq: atomic.AddUint32(&seq, 1), Uid: queue.Machine, Body: b}
 	b, err = proto.Marshal(&req)
 	if err != nil {
 		common.Errorf("faile to Marshal msg.err: %v", err)

@@ -28,8 +28,9 @@ func NewReflectServer(stTcpProxyConf *StTcpProxyConf, listener net.Listener, pro
 		panic("Controller is nil")
 	}
 
-	util.InitRateLimit(stTcpProxyConf.StrObj, stTcpProxyConf.MaxRate, stTcpProxyConf.MaxRatePer, stTcpProxyConf.Per)
+	util.InitRateLimit(stTcpProxyConf.Obj, stTcpProxyConf.MaxRate, stTcpProxyConf.MaxRatePer, stTcpProxyConf.Per)
 	controller.InitProxy()
+	ReloadConf(controller, stTcpProxyConf)
 	return &ReflectServer{
 		listener:       listener,
 		protocol:       protocol,
@@ -40,7 +41,7 @@ func NewReflectServer(stTcpProxyConf *StTcpProxyConf, listener net.Listener, pro
 }
 
 func (server *ReflectServer) Serve() error {
-	common.Infof("start tcp server.addr=%s", server.stTcpProxyConf.StrAddr)
+	common.Infof("start tcp server.addr=%s", server.stTcpProxyConf.Addr)
 	for {
 		conn, err := Accept(server.listener)
 		if err != nil {
@@ -70,7 +71,7 @@ func (server *ReflectServer) Stop() {
 }
 
 func Listen(network string, stTcpProxyConf *StTcpProxyConf, protocol protocol.Protocol, handler Handler, controller Controller) (*ReflectServer, error) {
-	listener, err := net.Listen(network, stTcpProxyConf.StrAddr)
+	listener, err := net.Listen(network, stTcpProxyConf.Addr)
 	if err != nil {
 		return nil, err
 	}

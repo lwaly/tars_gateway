@@ -11,27 +11,70 @@ import (
 )
 
 type StTcpProxyConf struct {
-	StrObj       string
-	Timeout      int    //读写超时时间
-	Heartbeat    int    //心跳间隔
-	MaxConn      int64  //最大连接数
-	StrAddr      string //tcp监听地址
-	MaxRate      int64  //最大接收字节数
-	MaxRatePer   int64  //每个连接最大接收字节数
-	ConnCount    int64  //已连接数
-	RateCount    int64  //已接收字节数
-	RatePerCount int64  //每个连接已接收字节数
-	Per          int64  //限速统计间隔
+	Obj          string    `json:"obj,omitempty"`
+	Timeout      int       `json:"timeout,omitempty"`      //读写超时时间
+	Heartbeat    int       `json:"heartbeat,omitempty"`    //心跳间隔
+	MaxConn      int64     `json:"maxConn,omitempty"`      //最大连接数
+	Addr         string    `json:"addr,omitempty"`         //tcp监听地址
+	MaxRate      int64     `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer   int64     `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount    int64     `json:"connCount,omitempty"`    //已连接数
+	RateCount    int64     `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount int64     `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per          int64     `json:"per,omitempty"`          //限速统计间隔
+	Limit        []StLimit `json:"limit,omitempty"`        //限速统计间隔
+}
+
+type StLimit struct {
+	Name string `json:"name,omitempty"`
+	Rate int    `json:"rate,omitempty"` //读写超时时间
 }
 
 type Controller interface {
-	InitProxy()
+	ReloadConf() (err error)
+	InitProxy() error
 	TcpProxyGet() (info interface{})
 	Verify(info interface{}) error
 	HandleReq(info, body, reqTemp interface{}) (output, reqOut interface{}, err error)
 	HandleRsp(info, output, reqOut interface{}) (outHeadRsp []byte, err error)
 	IsExit(info interface{}) int
 	Close(info interface{})
+}
+
+func ReloadConf(controller Controller, stTcpProxy *StTcpProxyConf) {
+	//tcp连接配置读取
+	ticker := time.NewTicker(time.Second * 5)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				if nil != stTcpProxy {
+					err := common.Conf.GetStruct("tcp", stTcpProxy)
+					if err != nil {
+						common.Errorf("fail to get tcp conf.%v", err)
+					}
+				}
+				if nil != controller {
+					controller.ReloadConf()
+				}
+			}
+		}
+	}()
+
+	return
+}
+
+func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
+	//tcp连接配置读取
+	stTcpProxy = new(StTcpProxyConf)
+
+	err = common.Conf.GetStruct("tcp", stTcpProxy)
+	if err != nil {
+		common.Errorf("fail to get tcp conf.%v", err)
+		return
+	}
+
+	return
 }
 
 func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf) {
@@ -85,8 +128,8 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 		}
 
 		//达到限速阀值,直接丢弃消息,短暂休眠继续消息读取
-		if "" != stTcpProxyConf.StrObj {
-			if err = util.AddRate(stTcpProxyConf.StrObj, int64(n)); nil != err {
+		if "" != stTcpProxyConf.Obj {
+			if err = util.AddRate(stTcpProxyConf.Obj, int64(n)); nil != err {
 				common.Warnf("More than the size of the max rate limit.%d", n)
 				time.Sleep(time.Duration(100) * time.Millisecond)
 				continue
