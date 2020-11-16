@@ -13,7 +13,7 @@ import (
 	"github.com/TarsCloud/TarsGo/tars/util/endpoint"
 	"github.com/gofrs/flock"
 	"github.com/golang/protobuf/proto"
-	"golang.org/sync/syncmap"
+	"golang.org/x/sync/syncmap"
 )
 
 const (
@@ -44,10 +44,11 @@ type StTarsTcpProxy struct {
 	iSign          uint64
 	mapApp         map[uint32]string
 	mapServer      map[string]map[uint32]string
-	mapTcpEndpoint map[string]*tars.EndpointManager
+	mapTcpEndpoint map[string]tars.EndpointManager
 	fileLock       *flock.Flock
 	Secret         string `json:"secret,omitempty"`
 	RouteType      int    `json:"routeType,omitempty"`
+	RouteId        uint64
 }
 
 type stTarsTcpProxy struct {
@@ -103,7 +104,7 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 }
 
 func (outInfo *StTarsTcpProxy) InitProxy() (err error) {
-	outInfo.mapTcpEndpoint = make(map[string]*tars.EndpointManager)
+	outInfo.mapTcpEndpoint = make(map[string]tars.EndpointManager)
 
 	outInfo.mapApp = make(map[uint32]string)
 	outInfo.mapServer = make(map[string]map[uint32]string)
@@ -249,62 +250,81 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 		return
 	}
 
-	var manager *tars.EndpointManager
-	manager, ok = info.outInfo.mapTcpEndpoint[obj]
+	// var manager *tars.EndpointManager
+	// manager, ok = info.outInfo.mapTcpEndpoint[obj]
+	// if !ok {
+	// 	bLock := false
+	// 	bLock, err = info.outInfo.fileLock.TryLock()
+	// 	if nil != err || false == bLock {
+	// 		err = errors.New("fail to TryLock")
+	// 		return
+	// 	}
+	// 	defer info.outInfo.fileLock.Unlock()
+	// 	manager = new(tars.EndpointManager)
+	// 	manager.Init(obj, comm)
+	// 	info.outInfo.mapTcpEndpoint[obj] = manager
+	// 	common.Infof("new EndpointManager. %s", obj)
+	// }
+
+	// var point *endpoint.Endpoint
+	// if 1 == info.outInfo.RouteType {
+	// 	point = manager.GetNextEndpoint()
+	// } else if 2 == info.outInfo.RouteType {
+	// 	point = manager.GetHashEndpoint(int64(reqOutTemp.GetRouteId()))
+	// } else {
+	// 	point = manager.GetNextEndpoint()
+	// }
+	manager, ok := info.outInfo.mapTcpEndpoint[obj]
 	if !ok {
-		bLock := false
-		bLock, err = info.outInfo.fileLock.TryLock()
-		if nil != err || false == bLock {
-			err = errors.New("fail to TryLock")
-			return
-		}
-		defer info.outInfo.fileLock.Unlock()
-		manager = new(tars.EndpointManager)
-		manager.Init(obj, comm)
+		manager = tars.GetManager(comm, obj)
 		info.outInfo.mapTcpEndpoint[obj] = manager
-		common.Infof("new EndpointManager. %s", obj)
+		common.Infof("new EndpointManager.")
 	}
 
-	var point *endpoint.Endpoint
-	if 1 == info.outInfo.RouteType {
-		point = manager.GetNextEndpoint()
-	} else if 2 == info.outInfo.RouteType {
-		point = manager.GetHashEndpoint(int64(reqOutTemp.GetRouteId()))
-	} else {
-		point = manager.GetNextEndpoint()
-	}
+	points := manager.GetAllEndpoint()
+	if 0 != len(points) {
+		var point *endpoint.Endpoint
 
-	if nil != point {
-		var appObj *Server
-		addr := fmt.Sprintf("%d%d", common.IPString2Long(point.Host), point.Port)
-		appObjTemp, ok := info.mapServer.Load(addr)
-
-		if !ok {
-			appObj = new(Server)
-			comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
-			info.mapServer.Store(addr, appObj)
+		if 1 == info.outInfo.RouteType {
+			tempId := atomic.AddUint64(&info.outInfo.RouteId, 1)
+			point = points[tempId%uint64(len(points))]
+		} else if 2 == info.outInfo.RouteType {
+			point = points[reqOutTemp.GetRouteId()%uint64(len(points))]
 		} else {
-			appObj, ok = appObjTemp.(*Server)
+			tempId := atomic.AddUint64(&info.outInfo.RouteId, 1)
+			point = points[tempId%uint64(len(points))]
+		}
+		if nil != point {
+			var appObj *Server
+			addr := fmt.Sprintf("%d%d", common.IPString2Long(point.Host), point.Port)
+			appObjTemp, ok := info.mapServer.Load(addr)
+
 			if !ok {
-				info.mapServer.Delete(addr)
 				appObj = new(Server)
 				comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
 				info.mapServer.Store(addr, appObj)
+			} else {
+				appObj, ok = appObjTemp.(*Server)
+				if !ok {
+					info.mapServer.Delete(addr)
+					appObj = new(Server)
+					comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
+					info.mapServer.Store(addr, appObj)
+				}
 			}
+			input := Request{Version: reqOutTemp.GetVersion(), Servant: reqOutTemp.GetServant(), Seq: reqOutTemp.GetSeq(), Uid: reqOutTemp.GetRouteId(), Body: rspBody.GetBody()}
+			outputTemp, err := appObj.Handle(input)
+			if err != nil {
+				common.Errorf("err: %v body=%s extend=%s", err, string(outputTemp.GetBody()[:]), string(outputTemp.GetExtend()[:]))
+				//user.mapServer.Delete(addr)
+				err = errors.New(common.ErrUnknown)
+				return outputTemp, reqOutTemp, err
+			}
+			info.verify(&outputTemp)
+			output = outputTemp
+			reqOut = reqOutTemp
 		}
-		input := Request{Version: reqOutTemp.GetVersion(), Servant: reqOutTemp.GetServant(), Seq: reqOutTemp.GetSeq(), Uid: reqOutTemp.GetRouteId(), Body: rspBody.GetBody()}
-		outputTemp, err := appObj.Handle(input)
-		if err != nil {
-			common.Errorf("err: %v body=%s extend=%s", err, string(outputTemp.GetBody()[:]), string(outputTemp.GetExtend()[:]))
-			//user.mapServer.Delete(addr)
-			err = errors.New(common.ErrUnknown)
-			return outputTemp, reqOutTemp, err
-		}
-		info.verify(&outputTemp)
-		output = outputTemp
-		reqOut = reqOutTemp
 	}
-
 	return
 }
 
