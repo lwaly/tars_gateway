@@ -1,15 +1,19 @@
 {
     "tcp":{
+        //服务开启1：开启服务，2：不开启
+        "switch": 1,
         //涉及时间的都是毫秒，限速统计单位是字节
         "addr":"192.168.89.13:8080",
+        //连接断开超时时间
         "timeout":1000,
+        //心跳间隔时间
         "heartbeat":45000,
         //最大连接数
-		"maxConn": 1,
+        "maxConn": 1,
         //最大数据接收字节
-		"maxRate": 100,
+        "maxRate": 100,
         //每个连接最大数据接收字节
-		"maxRatePer": 100,
+        "maxRatePer": 100,
         //流量统计间隔
         "per":1000,
         //限速对象
@@ -17,44 +21,61 @@
         //token秘钥
         "secret":"test",
         //路由方式，1：轮询，2：hash
-		"routeType": 1,
+        "routeType": 1,
+        "limit": [{
+            "name": "test",
+            "rate": 1
+        }]
     },
     "http":{
-        //涉及时间的都是毫秒
+        //服务开启1：开启服务，2：不开启
+        "switch": 1,
         "addr":"192.168.89.13:18080",
-	"maxConn": 1,
+        //最大连接数
+        "maxConn": 1,
         //流量统计间隔
         "per":1000 ,
+        //token秘钥
         "secret":"test",
-		"routeType": 1
+        //路由方式，1：轮询，2：hash
+        "routeType": 1
     },
+    //tars注册服务地址（tarsregistry）
     "tars":{
         "ip":"192.168.89.66",
         "port":17890
     },
-	"app": [{
-		"name": "test",
-		"id": 1,
-		"server": [{
-			"name": "test",
-			"id": 1
-		}]
-	}],
+    //tcp模块服务转换配置
+    "app": [{
+        //应用名
+        "name": "test",
+        //对应protocol.pb.go文件里结构体MsgHead里的App字段
+        "id": 1, 
+        //服务配置
+        "server": [{
+            //服务名
+            "name": "test",
+            //对应protocol.pb.go文件里结构体MsgHead里的Server字段
+            "id": 1 
+        }]
+    }],
     "log":{
         "path":"./",
+        //日志等级INFO：0，DEBUG：1，WARN：2，ERROR：3，FATAL：4
         "level":0,
-        //minute hour day week month
+        //日志切割周期：minute hour day week month
         "unit":"week"
     },
+    //消息队列，用于网关集群，网关间消息同步，具体参考看nats Streaming资料
     "queue":{
-		"addr": "nats://192.168.89.66:4222",
-		"cluster": "test",
-		"client": "gateway",
-		"groupObject": "gateway gateway",
-		"durable": "gateway",
+        "addr": "nats://192.168.89.66:4222",
+        "cluster": "test",
+        "client": "gateway",
+        "groupObject": "gateway gateway",
+        "durable": "gateway",
         //startSeq or deliverLast or deliverAll or startDelta
-		"startWay": "deliverLast",
-		"gatewayObject": "gateway",
-		"machine": 1
+        "startWay": "deliverLast",
+        "gatewayObject": "gateway",
+        "machine": 1
     }
 }

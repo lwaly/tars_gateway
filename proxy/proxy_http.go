@@ -11,8 +11,9 @@ import (
 type StHttpProxyConf struct {
 	MaxConn   int64  `json:"maxConn,omitempty"` //最大连接数
 	ConnCount int64  //已连接数
-	Addr      string `json:"addr,omitempty"` //监听地址
-	Per       int64  `json:"per,omitempty"`  //限速统计间隔
+	Addr      string `json:"addr,omitempty"`   //监听地址
+	Per       int64  `json:"per,omitempty"`    //限速统计间隔
+	Switch    uint32 `json:"switch,omitempty"` //1开启服务
 }
 
 type HttpController interface {

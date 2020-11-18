@@ -22,10 +22,12 @@ type Config struct {
 }
 
 // New creates a new Config object.
-func NewConf(filename string) *Config {
+func NewConf(filename string) error {
 	Conf = &Config{filename, nil}
-	Conf.Reload()
-	go Conf.watch()
+	return Conf.Reload()
+}
+
+func InstanceGet() *Config {
 	return Conf
 }
 
@@ -144,7 +146,7 @@ func (config *Config) Reload() error {
 	return nil
 }
 
-func (config *Config) watch() {
+func (config *Config) Watch() {
 	l := log.New(os.Stderr, "", 0)
 
 	// Catch SIGHUP to automatically reload cache

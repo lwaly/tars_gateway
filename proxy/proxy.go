@@ -23,6 +23,7 @@ type StTcpProxyConf struct {
 	RatePerCount int64     `json:"ratePerCount,omitempty"` //每个连接已接收字节数
 	Per          int64     `json:"per,omitempty"`          //限速统计间隔
 	Limit        []StLimit `json:"limit,omitempty"`        //限速统计间隔
+	Switch       uint32    `json:"switch,omitempty"`       //1开启服务
 }
 
 type StLimit struct {
