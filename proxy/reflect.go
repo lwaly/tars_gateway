@@ -8,7 +8,6 @@ import (
 
 	"github.com/lwaly/tars_gateway/common"
 	"github.com/lwaly/tars_gateway/protocol"
-	"github.com/lwaly/tars_gateway/util"
 )
 
 type ReflectServer struct {
@@ -28,7 +27,6 @@ func NewReflectServer(stTcpProxyConf *StTcpProxyConf, listener net.Listener, pro
 		panic("Controller is nil")
 	}
 
-	util.InitRateLimit(stTcpProxyConf.Obj, stTcpProxyConf.MaxRate, stTcpProxyConf.MaxRatePer, stTcpProxyConf.Per)
 	controller.InitProxy()
 	ReloadConf(controller, stTcpProxyConf)
 	return &ReflectServer{

@@ -22,6 +22,7 @@ type HttpControllerTars struct {
 	Secret          string `json:"secret,omitempty"`
 	RouteType       int    `json:"routeType,omitempty"`
 	RouteId         uint64
+	ModifyResponse  func(*http.Response)
 }
 
 func (h *HttpControllerTars) ReloadConf() (err error) {
@@ -32,7 +33,7 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 	return
 }
 
-func (h *HttpControllerTars) InitProxyHTTP() (err error) {
+func (h *HttpControllerTars) InitProxyHTTP(f func(*http.Response)) (err error) {
 	h.mapHttpEndpoint = make(map[string]tars.EndpointManager)
 	h.fileLock = flock.New("/var/lock/gateway-lock-http.lock")
 
@@ -135,10 +136,15 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 					req.URL.RawQuery = r.URL.RawQuery
 					req.Form = r.Form
 				},
+				ModifyResponse: ModifyResponse,
 			}
 
 			proxy.ServeHTTP(w, r)
 		}
 	}
 	return
+}
+
+func ModifyResponse(rsp *http.Response) error {
+	return nil
 }

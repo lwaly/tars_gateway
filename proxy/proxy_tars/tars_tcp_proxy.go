@@ -154,11 +154,11 @@ func (outInfo *StTarsTcpProxy) Verify(info interface{}) error {
 	return tempInfo.Verify()
 }
 
-func (outInfo *StTarsTcpProxy) HandleReq(info, body, reqTemp interface{}) (output, reqOut interface{}, err error) {
+func (outInfo *StTarsTcpProxy) HandleReq(info, body, reqTemp interface{}) (limitObj string, output, reqOut interface{}, err error) {
 	tempInfo, ok := info.(*stTarsTcpProxy)
 	if !ok {
 		common.Errorf("fail to convert")
-		return nil, nil, errors.New("fail to convert")
+		return "", nil, nil, errors.New("fail to convert")
 	}
 	return tempInfo.HandleReq(body, reqTemp)
 }
@@ -195,7 +195,7 @@ func (outInfo *StTarsTcpProxy) Close(info interface{}) {
 func (info *stTarsTcpProxy) InitProxy() {
 }
 
-func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut interface{}, err error) {
+func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (limitObj string, output, reqOut interface{}, err error) {
 	var ok bool
 	reqOutTemp, ok := reqTemp.(MsgHead)
 	if !ok {
@@ -243,6 +243,8 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 	}
 
 	obj, err := info.objFind(&reqOutTemp)
+	limitObj = obj
+	obj += "Obj"
 
 	if nil != err {
 		common.Errorf("fail to convert head")
@@ -250,30 +252,6 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 		return
 	}
 
-	// var manager *tars.EndpointManager
-	// manager, ok = info.outInfo.mapTcpEndpoint[obj]
-	// if !ok {
-	// 	bLock := false
-	// 	bLock, err = info.outInfo.fileLock.TryLock()
-	// 	if nil != err || false == bLock {
-	// 		err = errors.New("fail to TryLock")
-	// 		return
-	// 	}
-	// 	defer info.outInfo.fileLock.Unlock()
-	// 	manager = new(tars.EndpointManager)
-	// 	manager.Init(obj, comm)
-	// 	info.outInfo.mapTcpEndpoint[obj] = manager
-	// 	common.Infof("new EndpointManager. %s", obj)
-	// }
-
-	// var point *endpoint.Endpoint
-	// if 1 == info.outInfo.RouteType {
-	// 	point = manager.GetNextEndpoint()
-	// } else if 2 == info.outInfo.RouteType {
-	// 	point = manager.GetHashEndpoint(int64(reqOutTemp.GetRouteId()))
-	// } else {
-	// 	point = manager.GetNextEndpoint()
-	// }
 	manager, ok := info.outInfo.mapTcpEndpoint[obj]
 	if !ok {
 		manager = tars.GetManager(comm, obj)
@@ -318,7 +296,7 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (output, reqOut
 				common.Errorf("err: %v body=%s extend=%s", err, string(outputTemp.GetBody()[:]), string(outputTemp.GetExtend()[:]))
 				//user.mapServer.Delete(addr)
 				err = errors.New(common.ErrUnknown)
-				return outputTemp, reqOutTemp, err
+				return obj, outputTemp, reqOutTemp, err
 			}
 			info.verify(&outputTemp)
 			output = outputTemp
@@ -453,7 +431,7 @@ func (info *stTarsTcpProxy) objFind(reqOut *MsgHead) (strObj string, err error) 
 		return
 	}
 
-	return fmt.Sprintf("%s.%s.%sObj", app, mapSt, mapSt), nil
+	return fmt.Sprintf("%s.%s.%s", app, mapSt, mapSt), nil
 }
 
 func (info *stTarsTcpProxy) Close() {

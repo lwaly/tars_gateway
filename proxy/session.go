@@ -40,11 +40,6 @@ func (hf HandlerFunc) HandleSession(session *Session, conn net.Conn, stTcpProxyC
 
 //新建会话
 func NewSession(codec protocol.Protocol, controller Controller) *Session {
-	// if err := AddConn(rateLimitObj); nil != err {
-	// 	codec.Close()
-	// 	return nil
-	// }
-
 	session := &Session{
 		id:         atomic.AddUint64(&gSessionId, 1),
 		codec:      codec,
@@ -130,8 +125,6 @@ func (session *Session) Close(info interface{}) error {
 
 		//关闭协议传输
 		err := session.codec.Close(info)
-
-		//SubConn(session.rateLimitObj)
 		return err
 	}
 	return ErrSessionClosed

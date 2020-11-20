@@ -2,23 +2,57 @@ package proxy
 
 import (
 	"net/http"
-	"sync/atomic"
 	"time"
 
 	"github.com/lwaly/tars_gateway/common"
+	"github.com/lwaly/tars_gateway/util"
 )
 
 type StHttpProxyConf struct {
-	MaxConn   int64  `json:"maxConn,omitempty"` //最大连接数
-	ConnCount int64  //已连接数
-	Addr      string `json:"addr,omitempty"`   //监听地址
-	Per       int64  `json:"per,omitempty"`    //限速统计间隔
-	Switch    uint32 `json:"switch,omitempty"` //1开启服务
+	Addr            string          `json:"addr,omitempty"`            //监听地址
+	LimitObj        string          `json:"limitObj,omitempty"`        //监听地址
+	Switch          uint32          `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch uint32          `json:"rateLimitSwitch,omitempty"` //1开启服务
+	MaxConn         int64           `json:"maxConn,omitempty"`         //最大连接数
+	MaxRate         int64           `json:"maxRate,omitempty"`         //最大接收字节数
+	MaxRatePer      int64           `json:"maxRatePer,omitempty"`      //每个连接最大接收字节数
+	ConnCount       int64           `json:"connCount,omitempty"`       //已连接数
+	RateCount       int64           `json:"rateCount,omitempty"`       //已接收字节数
+	RatePerCount    int64           `json:"ratePerCount,omitempty"`    //每个连接已接收字节数
+	Per             int64           `json:"per,omitempty"`             //限速统计间隔
+	App             []StHttpAppConf `json:"app,omitempty"`             //限速统计间隔
+}
+
+type StHttpAppConf struct {
+	Switch          uint32                `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch uint32                `json:"rateLimitSwitch,omitempty"` //1开启服务
+	Name            string                `json:"name,omitempty"`
+	MaxConn         int64                 `json:"maxConn,omitempty"`      //最大连接数
+	MaxRate         int64                 `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer      int64                 `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount       int64                 `json:"connCount,omitempty"`    //已连接数
+	RateCount       int64                 `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount    int64                 `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per             int64                 `json:"per,omitempty"`          //限速统计间隔
+	Server          []StHttpAppServerConf `json:"server,omitempty"`       //限速统计间隔
+}
+
+type StHttpAppServerConf struct {
+	Switch          uint32 `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch uint32 `json:"rateLimitSwitch,omitempty"` //1开启服务
+	Name            string `json:"name,omitempty"`
+	MaxConn         int64  `json:"maxConn,omitempty"`      //最大连接数
+	MaxRate         int64  `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer      int64  `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount       int64  `json:"connCount,omitempty"`    //已连接数
+	RateCount       int64  `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount    int64  `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per             int64  `json:"per,omitempty"`          //限速统计间隔
 }
 
 type HttpController interface {
 	ReloadConf() (err error)
-	InitProxyHTTP() (err error)
+	InitProxyHTTP(f func(*http.Response)) (err error)
 	ServeHTTP(w http.ResponseWriter, r *http.Request) (err error)
 }
 
@@ -37,6 +71,21 @@ func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
 		return
 	}
 
+	if common.SWITCH_ON == stHttpProxy.Switch {
+		if common.SWITCH_ON == stHttpProxy.RateLimitSwitch {
+			util.InitRateLimit(stHttpProxy.LimitObj, stHttpProxy.MaxRate, stHttpProxy.MaxRatePer, stHttpProxy.MaxConn, stHttpProxy.Per)
+		}
+		for _, v := range stHttpProxy.App {
+			if common.SWITCH_ON == v.RateLimitSwitch {
+				util.InitRateLimit(stHttpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
+			}
+			for _, v1 := range v.Server {
+				if common.SWITCH_ON == v.RateLimitSwitch {
+					util.InitRateLimit(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
+				}
+			}
+		}
+	}
 	return
 }
 
@@ -74,15 +123,15 @@ func StartContentHttpProxy(stHttpProxy *StHttpProxyConf, h HttpController) (err 
 
 //实现Handler的接口
 func (h *StHttpController) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	//粗略限连接数，不做复杂的使用锁机制精确限连接数
-	if 0 < h.stHttpProxy.MaxConn {
-		if h.stHttpProxy.ConnCount >= h.stHttpProxy.MaxConn {
-			common.Warnf("The max connect is reached.%d %d", h.stHttpProxy.ConnCount, h.stHttpProxy.MaxConn)
-			return
-		}
-		atomic.AddInt64(&h.stHttpProxy.ConnCount, 1)
-		defer atomic.AddInt64(&h.stHttpProxy.ConnCount, -1)
+	if err := util.AddHttpConnLimit("/"+h.stHttpProxy.LimitObj+r.URL.Path, 1); nil != err {
+		common.Errorf("over connect limit.%v", err)
+		return
 	}
+	defer util.AddHttpConnLimit("/"+h.stHttpProxy.LimitObj+r.URL.Path, -1)
 
 	h.controller.ServeHTTP(w, r)
+}
+
+func ModifyResponse(rsp *http.Response) error {
+	return nil
 }

@@ -32,14 +32,14 @@ func main() {
 		return
 	}
 
-	if 1 == stHttpProxy.Switch {
-		go proxy.StartContentHttpProxy(stHttpProxy, &proxy_tars.HttpControllerTars{})
-	}
-
 	stTcpProxy, err := proxy.InitTcpProxy()
 	if nil != err {
 		common.Errorf("fail to get tcp conf.%v", err)
 		return
+	}
+
+	if 1 == stHttpProxy.Switch {
+		go proxy.StartContentHttpProxy(stHttpProxy, &proxy_tars.HttpControllerTars{})
 	}
 
 	if 1 == stTcpProxy.Switch {

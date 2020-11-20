@@ -12,6 +12,11 @@ import (
 )
 
 const (
+	SWITCH_ON  = 1
+	SWITCH_OFF = 2
+)
+
+const (
 	OK                 = 0
 	ERR_UNKNOWN        = 10000
 	ERR_INPUT_DATA     = 10001

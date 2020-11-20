@@ -4,44 +4,83 @@
         "addr": "192.168.89.13:8080",
         "timeout": 1000,
         "heartbeat": 45000,
+        "rateLimitSwitch": 1,
         "maxConn": 1,
         "maxRate": 100,
         "maxRatePer": 100,
         "per": 1000,
-        "obj": "tars_tcp",
+        "limitObj": "tars_tcp",
         "secret": "test",
         "routeType": 1,
-        "limit": [{
+        "app": [{
+            "id": 1,
             "name": "test",
-            "rate": 1
+            "rateLimitSwitch": 1,
+            "maxConn": 1,
+            "maxRate": 100,
+            "maxRatePer": 100,
+            "per": 1000,
+            "secret": "test",
+            "routeType": 1,
+            "switch": 1,
+            "server": [{
+                "id": 1,
+                "name": "test",
+                "rateLimitSwitch": 1,
+                "maxConn": 1,
+                "maxRate": 100,
+                "maxRatePer": 100,
+                "per": 1000,
+                "routeType": 1
+                "switch": 1,
+            }]
         }]
     },
     "http": {
         "switch": 1,
         "addr": "192.168.89.177:18080",
+        "rateLimitSwitch": 1,
         "maxConn": 1,
         "per": 1000,
+        "maxRate": 100,
+        "maxRatePer": 100,
         "secret": "test",
-        "routeType": 1
+        "routeType": 1,
+        "limitObj": "tars_http",
+        "app": [{
+            "id": 1,
+            "name": "test",
+            "rateLimitSwitch": 1,
+            "maxConn": 1,
+            "per": 1000,
+            "maxRate": 100,
+            "maxRatePer": 100,
+            "secret": "test",
+            "routeType": 1,
+            "switch": 1,
+            "server": [{
+                "id": 1,
+                "name": "test",
+                "rateLimitSwitch": 1,
+                "per": 1000,
+                "maxRate": 100,
+                "maxRatePer": 100,
+                "switch": 1,
+                "routeType": 1
+            }]
+        }]
     },
     "tars": {
         "ip": "192.168.89.66",
         "port": 17890
     },
-    "app": [{
-        "name": "test",
-        "id": 1,
-        "server": [{
-            "name": "test",
-            "id": 1
-        }]
-    }],
     "log": {
         "path": "./",
         "level": 0,
         "unit": "week"
     },
     "queue": {
+        "switch": 1,
         "addr": "nats://192.168.89.66:4222",
         "cluster": "test",
         "client": "gateway",

@@ -1,9 +1,9 @@
 package proxy
 
 import (
+	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/lwaly/tars_gateway/common"
@@ -11,19 +11,47 @@ import (
 )
 
 type StTcpProxyConf struct {
-	Obj          string    `json:"obj,omitempty"`
-	Timeout      int       `json:"timeout,omitempty"`      //读写超时时间
-	Heartbeat    int       `json:"heartbeat,omitempty"`    //心跳间隔
-	MaxConn      int64     `json:"maxConn,omitempty"`      //最大连接数
-	Addr         string    `json:"addr,omitempty"`         //tcp监听地址
-	MaxRate      int64     `json:"maxRate,omitempty"`      //最大接收字节数
-	MaxRatePer   int64     `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
-	ConnCount    int64     `json:"connCount,omitempty"`    //已连接数
-	RateCount    int64     `json:"rateCount,omitempty"`    //已接收字节数
-	RatePerCount int64     `json:"ratePerCount,omitempty"` //每个连接已接收字节数
-	Per          int64     `json:"per,omitempty"`          //限速统计间隔
-	Limit        []StLimit `json:"limit,omitempty"`        //限速统计间隔
-	Switch       uint32    `json:"switch,omitempty"`       //1开启服务
+	LimitObj        string         `json:"limitObj,omitempty"`
+	Timeout         int            `json:"timeout,omitempty"`         //读写超时时间
+	Heartbeat       int            `json:"heartbeat,omitempty"`       //心跳间隔
+	MaxConn         int64          `json:"maxConn,omitempty"`         //最大连接数
+	Addr            string         `json:"addr,omitempty"`            //tcp监听地址
+	MaxRate         int64          `json:"maxRate,omitempty"`         //最大接收字节数
+	MaxRatePer      int64          `json:"maxRatePer,omitempty"`      //每个连接最大接收字节数
+	ConnCount       int64          `json:"connCount,omitempty"`       //已连接数
+	RateCount       int64          `json:"rateCount,omitempty"`       //已接收字节数
+	RatePerCount    int64          `json:"ratePerCount,omitempty"`    //每个连接已接收字节数
+	Per             int64          `json:"per,omitempty"`             //限速统计间隔
+	Switch          uint32         `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch uint32         `json:"rateLimitSwitch,omitempty"` //1开启服务
+	App             []StTcpAppConf `json:"app,omitempty"`             //
+}
+
+type StTcpAppConf struct {
+	Switch          uint32               `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch uint32               `json:"rateLimitSwitch,omitempty"` //1开启服务
+	Name            string               `json:"name,omitempty"`
+	MaxConn         int64                `json:"maxConn,omitempty"`      //最大连接数
+	MaxRate         int64                `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer      int64                `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount       int64                `json:"connCount,omitempty"`    //已连接数
+	RateCount       int64                `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount    int64                `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per             int64                `json:"per,omitempty"`          //限速统计间隔
+	Server          []StTcpAppServerConf `json:"server,omitempty"`       //
+}
+
+type StTcpAppServerConf struct {
+	Switch          uint32 `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch uint32 `json:"rateLimitSwitch,omitempty"` //1开启服务
+	Name            string `json:"name,omitempty"`
+	MaxConn         int64  `json:"maxConn,omitempty"`      //最大连接数
+	MaxRate         int64  `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer      int64  `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount       int64  `json:"connCount,omitempty"`    //已连接数
+	RateCount       int64  `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount    int64  `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per             int64  `json:"per,omitempty"`          //限速统计间隔
 }
 
 type StLimit struct {
@@ -36,7 +64,7 @@ type Controller interface {
 	InitProxy() error
 	TcpProxyGet() (info interface{})
 	Verify(info interface{}) error
-	HandleReq(info, body, reqTemp interface{}) (output, reqOut interface{}, err error)
+	HandleReq(info, body, reqTemp interface{}) (limitObj string, output, reqOut interface{}, err error)
 	HandleRsp(info, output, reqOut interface{}) (outHeadRsp []byte, err error)
 	IsExit(info interface{}) int
 	Close(info interface{})
@@ -75,20 +103,32 @@ func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
 		return
 	}
 
+	//限速初始化
+	if common.SWITCH_ON == stTcpProxy.Switch {
+		if common.SWITCH_ON == stTcpProxy.RateLimitSwitch {
+			util.InitRateLimit(stTcpProxy.LimitObj, stTcpProxy.MaxRate, stTcpProxy.MaxRatePer, stTcpProxy.MaxConn, stTcpProxy.Per)
+		}
+		for _, v := range stTcpProxy.App {
+			if common.SWITCH_ON == v.RateLimitSwitch {
+				util.InitRateLimit(stTcpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
+			}
+			for _, v1 := range v.Server {
+				if common.SWITCH_ON == v.RateLimitSwitch {
+					util.InitRateLimit(stTcpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
+				}
+			}
+		}
+	}
+
 	return
 }
 
 func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf) {
-	//粗略限连接数，不做复杂的使用锁机制精确限连接数
-	if 0 < stTcpProxyConf.MaxConn {
-		if stTcpProxyConf.ConnCount >= stTcpProxyConf.MaxConn {
-			common.Warnf("The max connect is reached.%d %d", stTcpProxyConf.ConnCount, stTcpProxyConf.MaxConn)
-			return
-		}
-		atomic.AddInt64(&stTcpProxyConf.ConnCount, 1)
-		defer atomic.AddInt64(&stTcpProxyConf.ConnCount, -1)
+	if err := util.AddTcpConnLimit(stTcpProxyConf.LimitObj, 1); nil != err {
+		common.Errorf("over connect limit.%v", err)
+		return
 	}
-
+	defer util.AddTcpConnLimit(stTcpProxyConf.LimitObj, -1)
 	var wg sync.WaitGroup
 	infoTcpProxy := session.controller.TcpProxyGet()
 	infoProtocol := session.codec.NewCodec(conn, stTcpProxyConf.Timeout, stTcpProxyConf.Heartbeat)
@@ -110,6 +150,43 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 		}
 	}()
 
+	pHand := func(isFirstMsg *int, body, reqTemp interface{}) (limitObj string, err error) {
+		defer wg.Done()
+		tempLimitObj, output, reqOut, tempErr := session.controller.HandleReq(infoTcpProxy, body, reqTemp)
+		if tempErr != nil {
+			return "", tempErr
+		}
+		limitObj = tempLimitObj
+		if 0 == *isFirstMsg {
+			if err = util.AddTcpConnLimit(limitObj, 1); nil != err {
+				common.Warnf("over limit connect.%s", limitObj)
+				return
+			}
+			*isFirstMsg = 1
+		}
+
+		msg, tempErr := session.controller.HandleRsp(infoTcpProxy, output, reqOut)
+		if tempErr != nil {
+			common.Infof("fail to handle req msg.%v", err)
+			return "", tempErr
+		}
+
+		//达到限速阀值,直接丢弃消息
+		if "" != stTcpProxyConf.LimitObj {
+			temp := fmt.Sprintf("%s.%s", stTcpProxyConf.LimitObj, limitObj)
+			if err = util.AddRate(temp, int64(len(msg)), 0); nil != err {
+				common.Warnf("More than the size of the max rate limit.%s.%d", temp, len(msg))
+				return
+			}
+		}
+		if err = session.Send(infoProtocol, msg); nil != err {
+			common.Infof("fail to send msg.%v", err)
+			return
+		}
+		return
+	}
+
+	isFirstMsg := 0
 	for {
 		body, reqTemp, err, n := session.Receive(infoProtocol)
 		if 0 != session.controller.IsExit(infoTcpProxy) {
@@ -127,33 +204,19 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 			session.NoticeClose(infoProtocol)
 			break
 		}
-
-		//达到限速阀值,直接丢弃消息,短暂休眠继续消息读取
-		if "" != stTcpProxyConf.Obj {
-			if err = util.AddRate(stTcpProxyConf.Obj, int64(n)); nil != err {
-				common.Warnf("More than the size of the max rate limit.%d", n)
-				time.Sleep(time.Duration(100) * time.Millisecond)
-				continue
+		wg.Add(1)
+		if 0 == isFirstMsg {
+			if limitObj, err := pHand(&isFirstMsg, body, reqTemp); nil != err {
+				common.Errorf("connect close.n=%d", n)
+				session.NoticeClose(infoProtocol)
+				break
+			} else if 1 == isFirstMsg {
+				defer util.AddTcpConnLimit(limitObj, -1)
 			}
+		} else {
+			go pHand(&isFirstMsg, body, reqTemp)
 		}
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			output, reqOut, err := session.controller.HandleReq(infoTcpProxy, body, reqTemp)
-			if err != nil {
-				return
-			}
-			msg, err := session.controller.HandleRsp(infoTcpProxy, output, reqOut)
-			if err != nil {
-				common.Infof("fail to handle req msg.%v", err)
-				return
-			}
-			if err = session.Send(infoProtocol, msg); nil != err {
-				common.Infof("fail to send msg.%v", err)
-				return
-			}
-		}()
 	}
 
 	//关闭代理

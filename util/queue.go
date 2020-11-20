@@ -24,6 +24,7 @@ type stQueue struct {
 	StartWay      string `json:"startWay,omitempty"`
 	GatewayObject string `json:"gatewayObject,omitempty"`
 	Machine       uint64 `json:"machine,omitempty"`
+	Switch        uint32 `json:"switch,omitempty"`
 	handlerQueue  HandlerQueueFunc
 	gConn         stan.Conn
 	startOpt      stan.SubscriptionOption
@@ -43,6 +44,11 @@ func InitQueue(handlerQueue HandlerQueueFunc) {
 	err := common.Conf.GetStruct("queue", &queue)
 	if err != nil {
 		common.Errorf("fail to parse Queue config.%v %v", err, queue)
+		return
+	}
+
+	if common.SWITCH_ON != queue.Switch {
+		common.Infof("Queue off.%v", queue)
 		return
 	}
 
