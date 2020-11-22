@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -52,7 +53,7 @@ type StHttpAppServerConf struct {
 
 type HttpController interface {
 	ReloadConf() (err error)
-	InitProxyHTTP(f func(*http.Response)) (err error)
+	InitProxyHTTP(p interface{}, f func(interface{}, *http.Response) error) (err error)
 	ServeHTTP(w http.ResponseWriter, r *http.Request) (err error)
 }
 
@@ -92,7 +93,7 @@ func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
 func StartContentHttpProxy(stHttpProxy *StHttpProxyConf, h HttpController) (err error) {
 	//监听端口
 	controller := &StHttpController{stHttpProxy: stHttpProxy, controller: h}
-	controller.controller.InitProxyHTTP()
+	controller.controller.InitProxyHTTP(stHttpProxy, ModifyResponse)
 	err = http.ListenAndServe(stHttpProxy.Addr, controller)
 
 	if err != nil {
@@ -132,6 +133,21 @@ func (h *StHttpController) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.controller.ServeHTTP(w, r)
 }
 
-func ModifyResponse(rsp *http.Response) error {
+func ModifyResponse(p interface{}, rsp *http.Response) (err error) {
+	stHttpProxy := p.(*StHttpProxyConf)
+	if nil != stHttpProxy {
+		temp := fmt.Sprintf("/%s%s", stHttpProxy.LimitObj, rsp.Request.URL.Path)
+		n := rsp.ContentLength
+		if rsp.ContentLength < 0 {
+			n = 0
+		}
+		for k, v := range rsp.Header {
+			n += int64(len(k)) + int64(len(v))
+		}
+		if err = util.AddRate(temp, n, 0); nil != err {
+			common.Warnf("More than the size of the max rate limit.%s.%d", temp, n)
+			return
+		}
+	}
 	return nil
 }

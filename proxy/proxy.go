@@ -25,6 +25,8 @@ type StTcpProxyConf struct {
 	Switch          uint32         `json:"switch,omitempty"`          //1开启服务
 	RateLimitSwitch uint32         `json:"rateLimitSwitch,omitempty"` //1开启服务
 	App             []StTcpAppConf `json:"app,omitempty"`             //
+	BlackList       []string       `json:"blackList,omitempty"`       //
+	WhiteList       []string       `json:"whiteList,omitempty"`       //
 }
 
 type StTcpAppConf struct {
@@ -39,19 +41,23 @@ type StTcpAppConf struct {
 	RatePerCount    int64                `json:"ratePerCount,omitempty"` //每个连接已接收字节数
 	Per             int64                `json:"per,omitempty"`          //限速统计间隔
 	Server          []StTcpAppServerConf `json:"server,omitempty"`       //
+	BlackList       []string             `json:"blackList,omitempty"`    //
+	WhiteList       []string             `json:"whiteList,omitempty"`    //
 }
 
 type StTcpAppServerConf struct {
-	Switch          uint32 `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch uint32 `json:"rateLimitSwitch,omitempty"` //1开启服务
-	Name            string `json:"name,omitempty"`
-	MaxConn         int64  `json:"maxConn,omitempty"`      //最大连接数
-	MaxRate         int64  `json:"maxRate,omitempty"`      //最大接收字节数
-	MaxRatePer      int64  `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
-	ConnCount       int64  `json:"connCount,omitempty"`    //已连接数
-	RateCount       int64  `json:"rateCount,omitempty"`    //已接收字节数
-	RatePerCount    int64  `json:"ratePerCount,omitempty"` //每个连接已接收字节数
-	Per             int64  `json:"per,omitempty"`          //限速统计间隔
+	Switch          uint32   `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch uint32   `json:"rateLimitSwitch,omitempty"` //1开启服务
+	Name            string   `json:"name,omitempty"`
+	MaxConn         int64    `json:"maxConn,omitempty"`      //最大连接数
+	MaxRate         int64    `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer      int64    `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount       int64    `json:"connCount,omitempty"`    //已连接数
+	RateCount       int64    `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount    int64    `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per             int64    `json:"per,omitempty"`          //限速统计间隔
+	BlackList       []string `json:"blackList,omitempty"`    //
+	WhiteList       []string `json:"whiteList,omitempty"`    //
 }
 
 type StLimit struct {
@@ -124,6 +130,16 @@ func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
 }
 
 func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf) {
+	if 0 != len(stTcpProxyConf.WhiteList) && !common.IpIsInlist(conn.RemoteAddr(), stTcpProxyConf.WhiteList) {
+		common.Errorf("addr not in WhiteList.%v", conn.RemoteAddr().String())
+		return
+	}
+
+	if 0 != len(stTcpProxyConf.BlackList) && common.IpIsInlist(conn.RemoteAddr(), stTcpProxyConf.BlackList) {
+		common.Errorf("addr in BlackList.%v", conn.RemoteAddr().String())
+		return
+	}
+
 	if err := util.AddTcpConnLimit(stTcpProxyConf.LimitObj, 1); nil != err {
 		common.Errorf("over connect limit.%v", err)
 		return

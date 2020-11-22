@@ -28,15 +28,21 @@ var (
 	comm    *tars.Communicator
 )
 
-type StServer struct {
-	Id   uint32 `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
+type StTcpServer struct {
+	Id        uint32 `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Secret    string `json:"secret,omitempty"`
+	RouteType int    `json:"routeType,omitempty"`
+	Switch    uint32 `json:"switch,omitempty"` //1开启服务
 }
 
-type StApp struct {
-	Id     uint32     `json:"id,omitempty"`
-	Name   string     `json:"name,omitempty"`
-	Server []StServer `json:"server,omitempty"`
+type StTcpApp struct {
+	Id        uint32        `json:"id,omitempty"`
+	Name      string        `json:"name,omitempty"`
+	Server    []StTcpServer `json:"server,omitempty"`
+	Secret    string        `json:"secret,omitempty"`
+	RouteType int           `json:"routeType,omitempty"`
+	Switch    uint32        `json:"switch,omitempty"` //1开启服务
 }
 
 type StTarsTcpProxy struct {
@@ -44,10 +50,12 @@ type StTarsTcpProxy struct {
 	iSign          uint64
 	mapApp         map[uint32]string
 	mapServer      map[string]map[uint32]string
+	mapSecret      map[uint32]map[uint32]string
 	mapTcpEndpoint map[string]tars.EndpointManager
 	fileLock       *flock.Flock
-	Secret         string `json:"secret,omitempty"`
-	RouteType      int    `json:"routeType,omitempty"`
+	Secret         string     `json:"secret,omitempty"`
+	RouteType      int        `json:"routeType,omitempty"`
+	App            []StTcpApp `json:"app,omitempty"`
 	RouteId        uint64
 }
 
@@ -58,6 +66,7 @@ type stTarsTcpProxy struct {
 	mapServer  syncmap.Map //
 	isExit     int         //是否退出
 	iSign      uint64      //结构体对象唯一标识
+	Secret     string
 	outInfo    *StTarsTcpProxy
 }
 
@@ -67,13 +76,7 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 		return
 	}
 
-	stApp := []StApp{}
-	if err = common.Conf.GetArray("app", &stApp); nil != err {
-		common.Errorf("fail to get app info")
-		return
-	}
-
-	for _, value := range stApp {
+	for _, value := range outInfo.App {
 		mapApp := make(map[uint32]string)
 		_, ok := mapApp[value.Id]
 		if ok {
@@ -100,6 +103,26 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 
 		outInfo.mapServer[value.Name] = mTemp
 	}
+
+	for _, value := range outInfo.App {
+		mTemp := make(map[uint32]string)
+		for _, v := range value.Server {
+			_, ok := mTemp[v.Id]
+			if ok {
+				common.Errorf("repeat serverId.%v", v)
+				continue
+			}
+			if "" != v.Secret {
+				mTemp[v.Id] = v.Secret
+			} else if "" != value.Secret {
+				mTemp[v.Id] = value.Secret
+			} else {
+				mTemp[v.Id] = outInfo.Secret
+			}
+		}
+
+		outInfo.mapSecret[value.Id] = mTemp
+	}
 	return
 }
 
@@ -108,6 +131,7 @@ func (outInfo *StTarsTcpProxy) InitProxy() (err error) {
 
 	outInfo.mapApp = make(map[uint32]string)
 	outInfo.mapServer = make(map[string]map[uint32]string)
+	outInfo.mapSecret = make(map[uint32]map[uint32]string)
 	mapUser.Store(uint64(0), &stTarsTcpProxy{reader: make(chan []byte)})
 
 	outInfo.fileLock = flock.New("/var/lock/gateway-lock.lock")
@@ -246,6 +270,11 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (limitObj strin
 	limitObj = obj
 	obj += "Obj"
 
+	if v, ok := info.outInfo.mapSecret[reqOutTemp.App]; ok {
+		if v1, ok1 := v[reqOutTemp.Server]; ok1 {
+			info.Secret = v1
+		}
+	}
 	if nil != err {
 		common.Errorf("fail to convert head")
 		err = errors.New("fail to convert head")
@@ -356,7 +385,7 @@ func (info *stTarsTcpProxy) IsExit() int {
 func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
 	//扩展字段有值，认为是客户端重新认证，更换秘钥
 	if 0 != len(output.GetExtend()) {
-		if claims, err := util.TokenAuth(string(output.GetExtend()), info.outInfo.Secret); nil != err {
+		if claims, err := util.TokenAuth(string(output.GetExtend()), info.Secret); nil != err {
 			common.Errorf("authentication token fail.%v.%v.%v", string(output.GetExtend()), info.outInfo.Secret, err)
 			return err
 		} else {

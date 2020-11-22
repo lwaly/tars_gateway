@@ -16,27 +16,69 @@ import (
 	"github.com/TarsCloud/TarsGo/tars/util/endpoint"
 )
 
+type StHttpServer struct {
+	Id        uint32 `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Secret    string `json:"secret,omitempty"`
+	RouteType int    `json:"routeType,omitempty"`
+	Switch    uint32 `json:"switch,omitempty"` //1开启服务
+}
+
+type StHttpApp struct {
+	Id        uint32         `json:"id,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Server    []StHttpServer `json:"server,omitempty"`
+	Secret    string         `json:"secret,omitempty"`
+	RouteType int            `json:"routeType,omitempty"`
+	Switch    uint32         `json:"switch,omitempty"` //1开启服务
+}
+
 type HttpControllerTars struct {
 	mapHttpEndpoint map[string]tars.EndpointManager
 	fileLock        *flock.Flock
-	Secret          string `json:"secret,omitempty"`
-	RouteType       int    `json:"routeType,omitempty"`
+	mapSecret       map[string]string
+	Secret          string      `json:"secret,omitempty"`
+	RouteType       int         `json:"routeType,omitempty"`
+	App             []StHttpApp `json:"app,omitempty"`
 	RouteId         uint64
-	ModifyResponse  func(*http.Response)
 }
+
+var pCallBackStruct interface{}
+var pCallBackFunc func(p interface{}, rsp *http.Response) error
 
 func (h *HttpControllerTars) ReloadConf() (err error) {
 	if err = common.Conf.GetStruct("http", h); nil != err {
 		common.Errorf("fail to get app info")
 		return
 	}
+	for _, value := range h.App {
+		mTemp := make(map[string]string)
+		for _, v := range value.Server {
+			_, ok := mTemp[v.Name]
+			if ok {
+				common.Errorf("repeat serverId.%v", v)
+				continue
+			}
+			if "" != v.Secret {
+				h.mapSecret[value.Name+"."+v.Name] = v.Secret
+			} else if "empty" != value.Secret {
+				continue
+			} else if "" != value.Secret {
+				h.mapSecret[value.Name+"."+v.Name] = value.Secret
+			} else {
+				h.mapSecret[value.Name+"."+v.Name] = h.Secret
+			}
+		}
+	}
 	return
 }
 
-func (h *HttpControllerTars) InitProxyHTTP(f func(*http.Response)) (err error) {
+func (h *HttpControllerTars) InitProxyHTTP(p interface{}, f func(p interface{}, rsp *http.Response) error) (err error) {
 	h.mapHttpEndpoint = make(map[string]tars.EndpointManager)
 	h.fileLock = flock.New("/var/lock/gateway-lock-http.lock")
-
+	h.mapSecret = make(map[string]string)
+	pCallBackStruct = p
+	pCallBackFunc = f
 	h.ReloadConf()
 	return
 }
@@ -66,33 +108,21 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 			uid = 1
 		} else {
 			token := r.Header.Get("Token")
-			claims, err := util.TokenAuth(token, h.Secret)
-
-			if err != nil {
-				common.Errorf("authentication token fail.%v.%v.%v", token, h.Secret, err)
-				w.Write(common.NewErrorInfo(common.ERR_NO_USER, common.ErrNoUser))
-				return err
+			secret, _ := h.mapSecret[a[1]+"."+a[2]]
+			if secret != "empty" {
+				claims, err := util.TokenAuth(token, h.Secret)
+				if err != nil {
+					common.Errorf("authentication token fail.%v.%v.%v", token, h.Secret, err)
+					w.Write(common.NewErrorInfo(common.ERR_NO_USER, common.ErrNoUser))
+					return err
+				}
+				uid = claims.Uid
 			}
-			uid = claims.Uid
 		}
 	}
 
 	obj := fmt.Sprintf("%s.%s.%sObj", a[1], a[2], a[2])
 	common.Infof("init EndpointManager.%s %s,uid=%d", r.URL.Path, obj, uid)
-	// manager, ok := h.mapHttpEndpoint[obj]
-	// if !ok {
-	// 	bLock := false
-	// 	bLock, err = h.fileLock.TryLock()
-	// 	if nil != err || false == bLock {
-	// 		err = errors.New("fail to TryLock")
-	// 		return
-	// 	}
-	// 	defer h.fileLock.Unlock()
-	// 	manager = new(tars.EndpointManager)
-	// 	manager.Init(obj, comm)
-	// 	h.mapHttpEndpoint[obj] = manager
-	// 	common.Infof("new EndpointManager. %s", obj)
-	// }
 
 	manager, ok := h.mapHttpEndpoint[obj]
 	if !ok {
@@ -145,6 +175,13 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 	return
 }
 
-func ModifyResponse(rsp *http.Response) error {
+func ModifyResponse(rsp *http.Response) (err error) {
+	if nil != pCallBackFunc {
+		if err = pCallBackFunc(pCallBackStruct, rsp); nil != err {
+			common.Warnf("More than the size of the max rate limit.")
+			return
+		}
+	}
+
 	return nil
 }
