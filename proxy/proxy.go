@@ -3,6 +3,7 @@ package proxy
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -68,7 +69,7 @@ type StLimit struct {
 type Controller interface {
 	ReloadConf() (err error)
 	InitProxy() error
-	TcpProxyGet() (info interface{})
+	TcpProxyGet(ip string) (info interface{})
 	Verify(info interface{}) error
 	HandleReq(info, body, reqTemp interface{}) (limitObj string, output, reqOut interface{}, err error)
 	HandleRsp(info, output, reqOut interface{}) (outHeadRsp []byte, err error)
@@ -130,12 +131,14 @@ func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
 }
 
 func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf) {
-	if 0 != len(stTcpProxyConf.WhiteList) && !common.IpIsInlist(conn.RemoteAddr(), stTcpProxyConf.WhiteList) {
-		common.Errorf("addr not in WhiteList.%v", conn.RemoteAddr().String())
-		return
-	}
-
-	if 0 != len(stTcpProxyConf.BlackList) && common.IpIsInlist(conn.RemoteAddr(), stTcpProxyConf.BlackList) {
+	infoProtocol := session.codec.NewCodec(conn, stTcpProxyConf.Timeout, stTcpProxyConf.Heartbeat)
+	defer session.Close(infoProtocol)
+	if 0 != len(stTcpProxyConf.WhiteList) {
+		if !common.IpIsInlist(conn.RemoteAddr().String(), stTcpProxyConf.WhiteList) {
+			common.Errorf("addr not in WhiteList.%v", conn.RemoteAddr().String())
+			return
+		}
+	} else if 0 != len(stTcpProxyConf.BlackList) && common.IpIsInlist(conn.RemoteAddr().String(), stTcpProxyConf.BlackList) {
 		common.Errorf("addr in BlackList.%v", conn.RemoteAddr().String())
 		return
 	}
@@ -146,9 +149,7 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 	}
 	defer util.AddTcpConnLimit(stTcpProxyConf.LimitObj, -1)
 	var wg sync.WaitGroup
-	infoTcpProxy := session.controller.TcpProxyGet()
-	infoProtocol := session.codec.NewCodec(conn, stTcpProxyConf.Timeout, stTcpProxyConf.Heartbeat)
-	defer session.Close(infoProtocol)
+	infoTcpProxy := session.controller.TcpProxyGet(conn.RemoteAddr().String())
 	ticker := time.NewTicker(time.Millisecond * 500)
 	wg.Add(1)
 	go func() {
@@ -166,6 +167,7 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 		}
 	}()
 
+	connId, _ := strconv.ParseInt(fmt.Sprintf("%d", &conn), 10, 64)
 	pHand := func(isFirstMsg *int, body, reqTemp interface{}) (limitObj string, err error) {
 		defer wg.Done()
 		tempLimitObj, output, reqOut, tempErr := session.controller.HandleReq(infoTcpProxy, body, reqTemp)
@@ -173,8 +175,10 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 			return "", tempErr
 		}
 		limitObj = tempLimitObj
+
+		temp := fmt.Sprintf("%s.%s", stTcpProxyConf.LimitObj, limitObj)
 		if 0 == *isFirstMsg {
-			if err = util.AddTcpConnLimit(limitObj, 1); nil != err {
+			if err = util.AddTcpConnLimit(temp, 1); nil != err {
 				common.Warnf("over limit connect.%s", limitObj)
 				return
 			}
@@ -189,8 +193,7 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 
 		//达到限速阀值,直接丢弃消息
 		if "" != stTcpProxyConf.LimitObj {
-			temp := fmt.Sprintf("%s.%s", stTcpProxyConf.LimitObj, limitObj)
-			if err = util.AddRate(temp, int64(len(msg)), 0); nil != err {
+			if err = util.AddRate(temp, int64(len(msg)), connId); nil != err {
 				common.Warnf("More than the size of the max rate limit.%s.%d", temp, len(msg))
 				return
 			}

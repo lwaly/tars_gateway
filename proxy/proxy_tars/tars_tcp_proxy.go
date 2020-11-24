@@ -29,11 +29,12 @@ var (
 )
 
 type StTcpServer struct {
-	Id        uint32 `json:"id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Secret    string `json:"secret,omitempty"`
-	RouteType int    `json:"routeType,omitempty"`
-	Switch    uint32 `json:"switch,omitempty"` //1开启服务
+	Id        uint32   `json:"id,omitempty"`
+	Name      string   `json:"name,omitempty"`
+	RouteType int      `json:"routeType,omitempty"`
+	Switch    uint32   `json:"switch,omitempty"`    //1开启服务
+	BlackList []string `json:"blackList,omitempty"` //
+	WhiteList []string `json:"whiteList,omitempty"` //
 }
 
 type StTcpApp struct {
@@ -42,21 +43,27 @@ type StTcpApp struct {
 	Server    []StTcpServer `json:"server,omitempty"`
 	Secret    string        `json:"secret,omitempty"`
 	RouteType int           `json:"routeType,omitempty"`
-	Switch    uint32        `json:"switch,omitempty"` //1开启服务
+	Switch    uint32        `json:"switch,omitempty"`    //1开启服务
+	BlackList []string      `json:"blackList,omitempty"` //
+	WhiteList []string      `json:"whiteList,omitempty"` //
 }
 
 type StTarsTcpProxy struct {
-	userCount      int64
-	iSign          uint64
-	mapApp         map[uint32]string
-	mapServer      map[string]map[uint32]string
-	mapSecret      map[uint32]map[uint32]string
-	mapTcpEndpoint map[string]tars.EndpointManager
-	fileLock       *flock.Flock
-	Secret         string     `json:"secret,omitempty"`
-	RouteType      int        `json:"routeType,omitempty"`
-	App            []StTcpApp `json:"app,omitempty"`
-	RouteId        uint64
+	userCount          int64
+	iSign              uint64
+	mapApp             map[uint32]string
+	mapServer          map[string]map[uint32]string
+	mapAppBlackList    map[uint32][]string
+	mapServerBlackList map[uint32]map[uint32][]string
+	mapAppWhiteList    map[uint32][]string
+	mapServerWhiteList map[uint32]map[uint32][]string
+	mapSecret          map[uint32]string
+	mapTcpEndpoint     map[string]tars.EndpointManager
+	fileLock           *flock.Flock
+	Secret             string     `json:"secret,omitempty"`
+	RouteType          int        `json:"routeType,omitempty"`
+	App                []StTcpApp `json:"app,omitempty"`
+	RouteId            uint64
 }
 
 type stTarsTcpProxy struct {
@@ -67,6 +74,7 @@ type stTarsTcpProxy struct {
 	isExit     int         //是否退出
 	iSign      uint64      //结构体对象唯一标识
 	Secret     string
+	Addr       string
 	outInfo    *StTarsTcpProxy
 }
 
@@ -105,24 +113,71 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 	}
 
 	for _, value := range outInfo.App {
-		mTemp := make(map[uint32]string)
+		if "" != value.Secret && "empty" != value.Secret {
+			outInfo.mapSecret[value.Id] = value.Secret
+		} else if "" != outInfo.Secret && "empty" != outInfo.Secret {
+			outInfo.mapSecret[value.Id] = outInfo.Secret
+		} else {
+			outInfo.mapSecret[value.Id] = ""
+		}
+	}
+
+	for _, value := range outInfo.App {
+		mapApp := make(map[uint32][]string)
+		_, ok := mapApp[value.Id]
+		if ok {
+			common.Errorf("repeat app.%v", value)
+			continue
+		} else {
+			mapApp[value.Id] = value.WhiteList
+		}
+
+		_, ok = outInfo.mapAppWhiteList[value.Id]
+		if !ok {
+			outInfo.mapAppWhiteList[value.Id] = value.WhiteList
+		}
+
+		mTemp := make(map[uint32][]string)
 		for _, v := range value.Server {
 			_, ok := mTemp[v.Id]
 			if ok {
 				common.Errorf("repeat serverId.%v", v)
 				continue
 			}
-			if "" != v.Secret {
-				mTemp[v.Id] = v.Secret
-			} else if "" != value.Secret {
-				mTemp[v.Id] = value.Secret
-			} else {
-				mTemp[v.Id] = outInfo.Secret
-			}
+			mTemp[v.Id] = v.WhiteList
 		}
 
-		outInfo.mapSecret[value.Id] = mTemp
+		outInfo.mapServerWhiteList[value.Id] = mTemp
 	}
+
+	for _, value := range outInfo.App {
+		mapApp := make(map[uint32][]string)
+		_, ok := mapApp[value.Id]
+		if ok {
+			common.Errorf("repeat app.%v", value)
+			continue
+		} else {
+			mapApp[value.Id] = value.BlackList
+		}
+
+		_, ok = outInfo.mapAppBlackList[value.Id]
+		if !ok {
+			outInfo.mapAppBlackList[value.Id] = value.BlackList
+		}
+
+		mTemp := make(map[uint32][]string)
+		for _, v := range value.Server {
+			_, ok := mTemp[v.Id]
+			if ok {
+				common.Errorf("repeat serverId.%v", v)
+				continue
+			}
+			mTemp[v.Id] = v.BlackList
+		}
+
+		outInfo.mapServerBlackList[value.Id] = mTemp
+	}
+
 	return
 }
 
@@ -131,7 +186,12 @@ func (outInfo *StTarsTcpProxy) InitProxy() (err error) {
 
 	outInfo.mapApp = make(map[uint32]string)
 	outInfo.mapServer = make(map[string]map[uint32]string)
-	outInfo.mapSecret = make(map[uint32]map[uint32]string)
+	outInfo.mapSecret = make(map[uint32]string)
+	outInfo.mapAppBlackList = make(map[uint32][]string)
+	outInfo.mapServerBlackList = make(map[uint32]map[uint32][]string)
+	outInfo.mapAppWhiteList = make(map[uint32][]string)
+	outInfo.mapServerWhiteList = make(map[uint32]map[uint32][]string)
+
 	mapUser.Store(uint64(0), &stTarsTcpProxy{reader: make(chan []byte)})
 
 	outInfo.fileLock = flock.New("/var/lock/gateway-lock.lock")
@@ -162,9 +222,10 @@ func (outInfo *StTarsTcpProxy) InitProxy() (err error) {
 	return
 }
 
-func (outInfo *StTarsTcpProxy) TcpProxyGet() interface{} {
+func (outInfo *StTarsTcpProxy) TcpProxyGet(ip string) interface{} {
 	temp := new(stTarsTcpProxy)
 	temp.outInfo = outInfo
+	temp.Addr = ip
 	temp.iSign = atomic.AddUint64(&outInfo.iSign, 1)
 	return temp
 }
@@ -271,9 +332,7 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (limitObj strin
 	obj += "Obj"
 
 	if v, ok := info.outInfo.mapSecret[reqOutTemp.App]; ok {
-		if v1, ok1 := v[reqOutTemp.Server]; ok1 {
-			info.Secret = v1
-		}
+		info.Secret = v
 	}
 	if nil != err {
 		common.Errorf("fail to convert head")
@@ -281,6 +340,56 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (limitObj strin
 		return
 	}
 
+	isHaswhiteList := 0
+	whiteList, _ := info.outInfo.mapAppWhiteList[reqOutTemp.App]
+	if 0 != len(whiteList) {
+		isHaswhiteList = 1
+		if !common.IpIsInlist(info.Addr, whiteList) {
+			common.Errorf("addr not in WhiteList.%v", info.Addr)
+			info.Close()
+			info.isExit = CONNECT_CLOSE
+			return
+		}
+	} else {
+		whiteListServer, _ := info.outInfo.mapServerWhiteList[reqOutTemp.App]
+		if 0 != len(whiteListServer) {
+			temp, _ := whiteListServer[reqOutTemp.Server]
+			if 0 != len(temp) {
+				isHaswhiteList = 1
+				if !common.IpIsInlist(info.Addr, temp) {
+					common.Errorf("addr not in WhiteList.%v", info.Addr)
+					info.Close()
+					info.isExit = CONNECT_CLOSE
+					return
+				}
+			}
+		}
+	}
+
+	if 0 == isHaswhiteList {
+		blackList, _ := info.outInfo.mapAppBlackList[reqOutTemp.App]
+		if 0 != len(blackList) {
+			if common.IpIsInlist(info.Addr, blackList) {
+				common.Errorf("addr not in WhiteList.%v", info.Addr)
+				info.Close()
+				info.isExit = CONNECT_CLOSE
+				return
+			}
+		} else {
+			blackListServer, _ := info.outInfo.mapServerBlackList[reqOutTemp.App]
+			if 0 != len(blackListServer) {
+				temp, _ := blackListServer[reqOutTemp.Server]
+				if 0 != len(temp) {
+					if common.IpIsInlist(info.Addr, temp) {
+						common.Errorf("addr not in BlackList.%v", info.Addr)
+						info.Close()
+						info.isExit = CONNECT_CLOSE
+						return
+					}
+				}
+			}
+		}
+	}
 	manager, ok := info.outInfo.mapTcpEndpoint[obj]
 	if !ok {
 		manager = tars.GetManager(comm, obj)
@@ -291,7 +400,6 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (limitObj strin
 	points := manager.GetAllEndpoint()
 	if 0 != len(points) {
 		var point *endpoint.Endpoint
-
 		if 1 == info.outInfo.RouteType {
 			tempId := atomic.AddUint64(&info.outInfo.RouteId, 1)
 			point = points[tempId%uint64(len(points))]
@@ -305,7 +413,6 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (limitObj strin
 			var appObj *Server
 			addr := fmt.Sprintf("%d%d", common.IPString2Long(point.Host), point.Port)
 			appObjTemp, ok := info.mapServer.Load(addr)
-
 			if !ok {
 				appObj = new(Server)
 				comm.StringToProxy(fmt.Sprintf("%s@tcp -h %s -p %d", obj, point.Host, point.Port), appObj)
@@ -384,9 +491,9 @@ func (info *stTarsTcpProxy) IsExit() int {
 
 func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
 	//扩展字段有值，认为是客户端重新认证，更换秘钥
-	if 0 != len(output.GetExtend()) {
+	if 0 != len(output.GetExtend()) && "" != info.Secret {
 		if claims, err := util.TokenAuth(string(output.GetExtend()), info.Secret); nil != err {
-			common.Errorf("authentication token fail.%v.%v.%v", string(output.GetExtend()), info.outInfo.Secret, err)
+			common.Errorf("authentication token fail.%v.%v.%v", string(output.GetExtend()), info.Secret, err)
 			return err
 		} else {
 			if tempV, ok := mapUser.Load(claims.Uid); ok { //有同进程用户

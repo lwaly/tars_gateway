@@ -31,8 +31,8 @@
                 "maxRate": 100,
                 "maxRatePer": 100,
                 "per": 1000,
-                "routeType": 1
                 "switch": 1,
+                "routeType": 1               
             }]
         }]
     },

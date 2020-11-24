@@ -8,6 +8,8 @@
         "timeout":1000,
         //心跳间隔时间
         "heartbeat":45000,
+        //是否开启限速1：开启服务，2：不开启
+        "rateLimitSwitch": 1,
         //最大连接数
         "maxConn": 1,
         //最大数据接收字节
@@ -18,47 +20,82 @@
         "per":1000,
         //限速对象
         "obj":"tars_tcp",
-        //token秘钥
+        //token秘钥,"empty"为无秘钥
         "secret":"test",
         //路由方式，1：轮询，2：hash
         "routeType": 1,
-        "limit": [{
+        "app": [{
+            "id": 1,
             "name": "test",
-            "rate": 1
+            "rateLimitSwitch": 1,
+            "maxConn": 1,
+            "maxRate": 100,
+            "maxRatePer": 100,
+            "per": 1000,
+            "secret": "test",
+            "routeType": 1,
+            "switch": 1,
+            "server": [{
+                "id": 1,
+                "name": "test",
+                "rateLimitSwitch": 1,
+                "maxConn": 1,
+                "maxRate": 100,
+                "maxRatePer": 100,
+                "per": 1000,
+                "switch": 1,
+                "routeType": 1               
+            }]
         }]
     },
     "http":{
         //服务开启1：开启服务，2：不开启
         "switch": 1,
         "addr":"192.168.89.13:18080",
+        //是否开启限速1：开启服务，2：不开启
+        "rateLimitSwitch": 1,
         //最大连接数
         "maxConn": 1,
         //流量统计间隔
         "per":1000 ,
-        //token秘钥
+        //最大数据接收字节
+        "maxRate": 100,
+        //每个连接最大数据接收字节
+        "maxRatePer": 100,
+        //token秘钥,"empty"为无秘钥
         "secret":"test",
         //路由方式，1：轮询，2：hash
-        "routeType": 1
+        "routeType": 1,
+        //限速对象
+        "limitObj": "tars_http",
+        "app": [{
+            "id": 1,
+            "name": "test",
+            "rateLimitSwitch": 1,
+            "maxConn": 1,
+            "per": 1000,
+            "maxRate": 100,
+            "maxRatePer": 100,
+            "secret": "test",
+            "routeType": 1,
+            "switch": 1,
+            "server": [{
+                "id": 1,
+                "name": "test",
+                "rateLimitSwitch": 1,
+                "per": 1000,
+                "maxRate": 100,
+                "maxRatePer": 100,
+                "switch": 1,
+                "routeType": 1
+            }]
+        }]
     },
     //tars注册服务地址（tarsregistry）
     "tars":{
         "ip":"192.168.89.66",
         "port":17890
     },
-    //tcp模块服务转换配置
-    "app": [{
-        //应用名
-        "name": "test",
-        //对应protocol.pb.go文件里结构体MsgHead里的App字段
-        "id": 1, 
-        //服务配置
-        "server": [{
-            //服务名
-            "name": "test",
-            //对应protocol.pb.go文件里结构体MsgHead里的Server字段
-            "id": 1 
-        }]
-    }],
     "log":{
         "path":"./",
         //日志等级INFO：0，DEBUG：1，WARN：2，ERROR：3，FATAL：4
@@ -68,6 +105,8 @@
     },
     //消息队列，用于网关集群，网关间消息同步，具体参考看nats Streaming资料
     "queue":{
+        //服务开启1：开启服务，2：不开启
+        "switch": 1,
         "addr": "nats://192.168.89.66:4222",
         "cluster": "test",
         "client": "gateway",
