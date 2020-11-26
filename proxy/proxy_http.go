@@ -68,10 +68,7 @@ type StHttpController struct {
 	stHttpProxy *StHttpProxyConf
 }
 
-func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
-	//tcp连接配置读取
-	stHttpProxy = new(StHttpProxyConf)
-
+func reloadHttpConf(stHttpProxy *StHttpProxyConf) (err error) {
 	err = common.Conf.GetStruct("http", stHttpProxy)
 	if err != nil {
 		common.Errorf("fail to get http conf.%v", err)
@@ -81,14 +78,20 @@ func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
 	if common.SWITCH_ON == stHttpProxy.Switch {
 		if common.SWITCH_ON == stHttpProxy.RateLimitSwitch {
 			util.InitRateLimit(stHttpProxy.LimitObj, stHttpProxy.MaxRate, stHttpProxy.MaxRatePer, stHttpProxy.MaxConn, stHttpProxy.Per)
+		} else {
+			util.RateLimitDel(stHttpProxy.LimitObj)
 		}
 		for _, v := range stHttpProxy.App {
 			if common.SWITCH_ON == v.RateLimitSwitch {
 				util.InitRateLimit(stHttpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
+			} else {
+				util.RateLimitDel(stHttpProxy.LimitObj + "." + v.Name)
 			}
 			for _, v1 := range v.Server {
 				if common.SWITCH_ON == v.RateLimitSwitch {
 					util.InitRateLimit(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
+				} else {
+					util.RateLimitDel(stHttpProxy.LimitObj + "." + v.Name + "." + v1.Name)
 				}
 			}
 		}
@@ -96,27 +99,25 @@ func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
 	return
 }
 
+func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
+	//tcp连接配置读取
+	stHttpProxy = new(StHttpProxyConf)
+
+	return stHttpProxy, reloadHttpConf(stHttpProxy)
+}
+
 func StartContentHttpProxy(stHttpProxy *StHttpProxyConf, h HttpController) (err error) {
 	//监听端口
+
 	controller := &StHttpController{stHttpProxy: stHttpProxy, controller: h}
 	controller.controller.InitProxyHTTP(stHttpProxy, ModifyResponse)
-	err = http.ListenAndServe(stHttpProxy.Addr, controller)
-
-	if err != nil {
-		common.Errorf("ListenAndServe:%s ", err.Error())
-		return
-	}
-
 	ticker := time.NewTicker(time.Second * 5)
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
 				if nil != stHttpProxy {
-					err := common.Conf.GetStruct("http", stHttpProxy)
-					if err != nil {
-						common.Errorf("fail to get http conf.%v", err)
-					}
+					reloadHttpConf(stHttpProxy)
 				}
 				if nil != controller.controller {
 					controller.controller.ReloadConf()
@@ -124,6 +125,12 @@ func StartContentHttpProxy(stHttpProxy *StHttpProxyConf, h HttpController) (err 
 			}
 		}
 	}()
+
+	err = http.ListenAndServe(stHttpProxy.Addr, controller)
+	if err != nil {
+		common.Errorf("ListenAndServe:%s ", err.Error())
+		return
+	}
 
 	return err
 }

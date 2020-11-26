@@ -32,7 +32,6 @@ type StTcpServer struct {
 	Id        uint32   `json:"id,omitempty"`
 	Name      string   `json:"name,omitempty"`
 	RouteType int      `json:"routeType,omitempty"`
-	Switch    uint32   `json:"switch,omitempty"`    //1开启服务
 	BlackList []string `json:"blackList,omitempty"` //
 	WhiteList []string `json:"whiteList,omitempty"` //
 }
@@ -42,8 +41,8 @@ type StTcpApp struct {
 	Name      string        `json:"name,omitempty"`
 	Server    []StTcpServer `json:"server,omitempty"`
 	Secret    string        `json:"secret,omitempty"`
+	Switch    uint32        `json:"switch,omitempty"` //1开启服务
 	RouteType int           `json:"routeType,omitempty"`
-	Switch    uint32        `json:"switch,omitempty"`    //1开启服务
 	BlackList []string      `json:"blackList,omitempty"` //
 	WhiteList []string      `json:"whiteList,omitempty"` //
 }
@@ -51,6 +50,7 @@ type StTcpApp struct {
 type StTarsTcpProxy struct {
 	userCount          int64
 	iSign              uint64
+	mapAppSwitch       map[uint32]uint32
 	mapApp             map[uint32]string
 	mapServer          map[string]map[uint32]string
 	mapAppBlackList    map[uint32][]string
@@ -132,10 +132,7 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 			mapApp[value.Id] = value.WhiteList
 		}
 
-		_, ok = outInfo.mapAppWhiteList[value.Id]
-		if !ok {
-			outInfo.mapAppWhiteList[value.Id] = value.WhiteList
-		}
+		outInfo.mapAppWhiteList[value.Id] = value.WhiteList
 
 		mTemp := make(map[uint32][]string)
 		for _, v := range value.Server {
@@ -160,10 +157,7 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 			mapApp[value.Id] = value.BlackList
 		}
 
-		_, ok = outInfo.mapAppBlackList[value.Id]
-		if !ok {
-			outInfo.mapAppBlackList[value.Id] = value.BlackList
-		}
+		outInfo.mapAppBlackList[value.Id] = value.BlackList
 
 		mTemp := make(map[uint32][]string)
 		for _, v := range value.Server {
@@ -178,6 +172,9 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 		outInfo.mapServerBlackList[value.Id] = mTemp
 	}
 
+	for _, value := range outInfo.App {
+		outInfo.mapAppSwitch[value.Id] = value.Switch
+	}
 	return
 }
 
@@ -191,6 +188,7 @@ func (outInfo *StTarsTcpProxy) InitProxy() (err error) {
 	outInfo.mapServerBlackList = make(map[uint32]map[uint32][]string)
 	outInfo.mapAppWhiteList = make(map[uint32][]string)
 	outInfo.mapServerWhiteList = make(map[uint32]map[uint32][]string)
+	outInfo.mapAppSwitch = make(map[uint32]uint32)
 
 	mapUser.Store(uint64(0), &stTarsTcpProxy{reader: make(chan []byte)})
 
@@ -286,6 +284,14 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (limitObj strin
 	if !ok {
 		common.Errorf("fail to convert head")
 		err = errors.New("fail to convert head")
+		return
+	}
+
+	if v, _ := info.outInfo.mapAppSwitch[reqOutTemp.App]; common.SWITCH_ON != v {
+		common.Errorf("app close.%s", reqOutTemp.App)
+		err = errors.New(common.ErrUnknown)
+		info.isExit = CONNECT_CLOSE
+		info.Close()
 		return
 	}
 

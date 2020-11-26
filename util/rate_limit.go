@@ -36,7 +36,6 @@ func InitRateLimit(obj string, maxRate, maxRatePer, maxConn, per int64) (err err
 	}
 
 	if _, ok := mapRateLimit[obj]; ok {
-		common.Errorf("repeat key.key=%s", obj)
 		return errors.New("repeat key")
 	}
 
@@ -53,6 +52,19 @@ func InitRateLimit(obj string, maxRate, maxRatePer, maxConn, per int64) (err err
 	lstRateLimit.mapobjRatePer = make(map[int64]int64)
 
 	mapRateLimit[obj] = &lstRateLimit
+	return
+}
+
+func RateLimitDel(obj string) (err error) {
+	if "" == obj {
+		common.Warnf("param error.obj=%s", obj)
+		return errors.New("param error")
+	}
+
+	if _, ok := mapRateLimit[obj]; ok {
+		delete(mapRateLimit, obj)
+	}
+
 	return
 }
 

@@ -49,6 +49,7 @@ type HttpControllerTars struct {
 	mapServerBlackList map[string][]string
 	mapAppWhiteList    map[string][]string
 	mapServerWhiteList map[string][]string
+	mapSwitch          map[string]uint32
 }
 
 var pCallBackStruct interface{}
@@ -59,9 +60,9 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 		common.Errorf("fail to get app info")
 		return
 	}
+
 	for _, value := range h.App {
 		for _, v := range value.Server {
-			common.Infof("#####.%v.%v.%v", v.Secret, value.Secret, h.Secret)
 			if "" != v.Secret && "empty" != v.Secret {
 				h.mapSecret[value.Name+"."+v.Name] = v.Secret
 			} else if "" != value.Secret && "empty" != value.Secret {
@@ -83,9 +84,9 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 				continue
 			}
 
-			h.mapAppWhiteList[value.Name] = value.WhiteList
 			h.mapServerWhiteList[value.Name+"."+v.Name] = v.WhiteList
 		}
+		h.mapAppWhiteList[value.Name] = value.WhiteList
 	}
 
 	for _, value := range h.App {
@@ -97,10 +98,24 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 				continue
 			}
 
-			h.mapAppBlackList[value.Name] = value.BlackList
 			h.mapServerBlackList[value.Name+"."+v.Name] = v.BlackList
 		}
+		h.mapAppBlackList[value.Name] = value.BlackList
 	}
+
+	for _, value := range h.App {
+		mTemp := make(map[string]string)
+		for _, v := range value.Server {
+			_, ok := mTemp[v.Name]
+			if ok {
+				common.Errorf("repeat serverId.%v", v)
+				continue
+			}
+			h.mapSwitch[value.Name+"."+v.Name] = v.Switch
+		}
+		h.mapSwitch[value.Name] = value.Switch
+	}
+
 	return
 }
 
@@ -112,7 +127,7 @@ func (h *HttpControllerTars) InitProxyHTTP(p interface{}, f func(p interface{}, 
 	h.mapServerBlackList = make(map[string][]string)
 	h.mapAppWhiteList = make(map[string][]string)
 	h.mapServerWhiteList = make(map[string][]string)
-
+	h.mapSwitch = make(map[string]uint32)
 	pCallBackStruct = p
 	pCallBackFunc = f
 	h.ReloadConf()
@@ -137,6 +152,13 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 		return
 	}
 
+	appSwitch, _ := h.mapSwitch[a[1]]
+	serverSwitch, _ := h.mapSwitch[a[1]+"."+a[2]]
+
+	if common.SWITCH_ON != appSwitch || common.SWITCH_ON != serverSwitch {
+		common.Errorf("app close.%s", r.URL.Path, appSwitch, serverSwitch)
+		return
+	}
 	appWhiteList, _ := h.mapAppWhiteList[a[1]]
 	serverWhiteList, _ := h.mapServerWhiteList[a[1]+"."+a[2]]
 	if 0 != len(appWhiteList) || 0 != len(serverWhiteList) {

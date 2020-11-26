@@ -85,10 +85,7 @@ func ReloadConf(controller Controller, stTcpProxy *StTcpProxyConf) {
 			select {
 			case <-ticker.C:
 				if nil != stTcpProxy {
-					err := common.Conf.GetStruct("tcp", stTcpProxy)
-					if err != nil {
-						common.Errorf("fail to get tcp conf.%v", err)
-					}
+					reloadConf(stTcpProxy)
 				}
 				if nil != controller {
 					controller.ReloadConf()
@@ -100,10 +97,7 @@ func ReloadConf(controller Controller, stTcpProxy *StTcpProxyConf) {
 	return
 }
 
-func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
-	//tcp连接配置读取
-	stTcpProxy = new(StTcpProxyConf)
-
+func reloadConf(stTcpProxy *StTcpProxyConf) (err error) {
 	err = common.Conf.GetStruct("tcp", stTcpProxy)
 	if err != nil {
 		common.Errorf("fail to get tcp conf.%v", err)
@@ -114,20 +108,33 @@ func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
 	if common.SWITCH_ON == stTcpProxy.Switch {
 		if common.SWITCH_ON == stTcpProxy.RateLimitSwitch {
 			util.InitRateLimit(stTcpProxy.LimitObj, stTcpProxy.MaxRate, stTcpProxy.MaxRatePer, stTcpProxy.MaxConn, stTcpProxy.Per)
+		} else {
+			util.RateLimitDel(stTcpProxy.LimitObj)
 		}
 		for _, v := range stTcpProxy.App {
 			if common.SWITCH_ON == v.RateLimitSwitch {
 				util.InitRateLimit(stTcpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
+			} else {
+				util.RateLimitDel(stTcpProxy.LimitObj + "." + v.Name)
 			}
 			for _, v1 := range v.Server {
 				if common.SWITCH_ON == v.RateLimitSwitch {
 					util.InitRateLimit(stTcpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
+				} else {
+					util.RateLimitDel(stTcpProxy.LimitObj + "." + v.Name + "." + v1.Name)
 				}
 			}
 		}
 	}
 
 	return
+}
+
+func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
+	//tcp连接配置读取
+	stTcpProxy = new(StTcpProxyConf)
+
+	return stTcpProxy, reloadConf(stTcpProxy)
 }
 
 func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf) {
