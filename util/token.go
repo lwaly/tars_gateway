@@ -14,8 +14,9 @@ import (
 )
 
 type Claims struct {
-	Uid  uint64 `json:"uid"`
-	Name string `json:"name"`
+	Uid  uint64           `json:"uid,omitempty"`
+	Name string           `json:"name,omitempty"`
+	Data *json.RawMessage `json:"data,omitempty"`
 	jwt.StandardClaims
 }
 
@@ -27,22 +28,40 @@ func ToMd5(uid uint64, expireToken int64, secret string) (decode []byte) {
 	return []byte(base64.StdEncoding.EncodeToString(cipherStr))
 }
 
-func CreateToken(id uint64, second int64, secret, name string) string {
+func CreateToken(id uint64, second int64, data []byte, secret, name string) string {
 	expireToken := time.Now().Add(time.Second * time.Duration(second)).Unix()
-	claims := Claims{
-		id,
-		name,
-		jwt.StandardClaims{
-			ExpiresAt: expireToken,
-		},
+	if 0 == len(data) {
+		claims := Claims{
+			id,
+			name,
+			nil,
+			jwt.StandardClaims{
+				ExpiresAt: expireToken,
+			},
+		}
+		// Create the token using your claims
+		cToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+		// Signs the token with a secret.
+		signedToken, _ := cToken.SignedString(ToMd5(claims.Uid, claims.ExpiresAt, secret))
+		return signedToken
+	} else {
+		temp := json.RawMessage(data)
+		claims := Claims{
+			id,
+			name,
+			&temp,
+			jwt.StandardClaims{
+				ExpiresAt: expireToken,
+			},
+		}
+		// Create the token using your claims
+		cToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+		// Signs the token with a secret.
+		signedToken, _ := cToken.SignedString(ToMd5(claims.Uid, claims.ExpiresAt, secret))
+		return signedToken
 	}
-
-	// Create the token using your claims
-	cToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	// Signs the token with a secret.
-	signedToken, _ := cToken.SignedString(ToMd5(claims.Uid, claims.ExpiresAt, secret))
-	return signedToken
 }
 
 func TokenAuth(signedToken, secret string) (claims *Claims, err error) {

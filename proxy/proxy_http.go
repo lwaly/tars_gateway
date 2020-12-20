@@ -10,50 +10,59 @@ import (
 )
 
 type StHttpProxyConf struct {
-	Addr            string          `json:"addr,omitempty"`            //监听地址
-	LimitObj        string          `json:"limitObj,omitempty"`        //监听地址
-	Switch          uint32          `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch uint32          `json:"rateLimitSwitch,omitempty"` //1开启服务
-	MaxConn         int64           `json:"maxConn,omitempty"`         //最大连接数
-	MaxRate         int64           `json:"maxRate,omitempty"`         //最大接收字节数
-	MaxRatePer      int64           `json:"maxRatePer,omitempty"`      //每个连接最大接收字节数
-	ConnCount       int64           `json:"connCount,omitempty"`       //已连接数
-	RateCount       int64           `json:"rateCount,omitempty"`       //已接收字节数
-	RatePerCount    int64           `json:"ratePerCount,omitempty"`    //每个连接已接收字节数
-	Per             int64           `json:"per,omitempty"`             //限速统计间隔
-	App             []StHttpAppConf `json:"app,omitempty"`             //限速统计间隔
+	Addr                string          `json:"addr,omitempty"`            //监听地址
+	LimitObj            string          `json:"limitObj,omitempty"`        //监听地址
+	Switch              uint32          `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch     uint32          `json:"rateLimitSwitch,omitempty"` //1开启服务
+	MaxConn             int64           `json:"maxConn,omitempty"`         //最大连接数
+	MaxRate             int64           `json:"maxRate,omitempty"`         //最大接收字节数
+	MaxRatePer          int64           `json:"maxRatePer,omitempty"`      //每个连接最大接收字节数
+	ConnCount           int64           `json:"connCount,omitempty"`       //已连接数
+	RateCount           int64           `json:"rateCount,omitempty"`       //已接收字节数
+	RatePerCount        int64           `json:"ratePerCount,omitempty"`    //每个连接已接收字节数
+	Per                 int64           `json:"per,omitempty"`             //限速统计间隔
+	App                 []StHttpAppConf `json:"app,omitempty"`             //限速统计间隔
+	CacheSwitch         int64           `json:"cacheSwitch,omitempty"`
+	CacheSize           int64           `json:"cacheSize,omitempty"`
+	CacheExpirationTime int64           `json:"cacheExpirationTime,omitempty"`
 }
 
 type StHttpAppConf struct {
-	Switch          uint32                `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch uint32                `json:"rateLimitSwitch,omitempty"` //1开启服务
-	Name            string                `json:"name,omitempty"`
-	MaxConn         int64                 `json:"maxConn,omitempty"`      //最大连接数
-	MaxRate         int64                 `json:"maxRate,omitempty"`      //最大接收字节数
-	MaxRatePer      int64                 `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
-	ConnCount       int64                 `json:"connCount,omitempty"`    //已连接数
-	RateCount       int64                 `json:"rateCount,omitempty"`    //已接收字节数
-	RatePerCount    int64                 `json:"ratePerCount,omitempty"` //每个连接已接收字节数
-	Per             int64                 `json:"per,omitempty"`          //限速统计间隔
-	Server          []StHttpAppServerConf `json:"server,omitempty"`       //限速统计间隔
+	Switch              uint32                `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch     uint32                `json:"rateLimitSwitch,omitempty"` //1开启服务
+	Name                string                `json:"name,omitempty"`
+	MaxConn             int64                 `json:"maxConn,omitempty"`      //最大连接数
+	MaxRate             int64                 `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer          int64                 `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount           int64                 `json:"connCount,omitempty"`    //已连接数
+	RateCount           int64                 `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount        int64                 `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per                 int64                 `json:"per,omitempty"`          //限速统计间隔
+	Server              []StHttpAppServerConf `json:"server,omitempty"`       //限速统计间隔
+	CacheSwitch         int64                 `json:"cacheSwitch,omitempty"`
+	CacheSize           int64                 `json:"cacheSize,omitempty"`
+	CacheExpirationTime int64                 `json:"cacheExpirationTime,omitempty"`
 }
 
 type StHttpAppServerConf struct {
-	Switch          uint32 `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch uint32 `json:"rateLimitSwitch,omitempty"` //1开启服务
-	Name            string `json:"name,omitempty"`
-	MaxConn         int64  `json:"maxConn,omitempty"`      //最大连接数
-	MaxRate         int64  `json:"maxRate,omitempty"`      //最大接收字节数
-	MaxRatePer      int64  `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
-	ConnCount       int64  `json:"connCount,omitempty"`    //已连接数
-	RateCount       int64  `json:"rateCount,omitempty"`    //已接收字节数
-	RatePerCount    int64  `json:"ratePerCount,omitempty"` //每个连接已接收字节数
-	Per             int64  `json:"per,omitempty"`          //限速统计间隔
+	Switch              uint32 `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch     uint32 `json:"rateLimitSwitch,omitempty"` //1开启服务
+	Name                string `json:"name,omitempty"`
+	MaxConn             int64  `json:"maxConn,omitempty"`      //最大连接数
+	MaxRate             int64  `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer          int64  `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount           int64  `json:"connCount,omitempty"`    //已连接数
+	RateCount           int64  `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount        int64  `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per                 int64  `json:"per,omitempty"`          //限速统计间隔
+	CacheSwitch         int64  `json:"cacheSwitch,omitempty"`
+	CacheSize           int64  `json:"cacheSize,omitempty"`
+	CacheExpirationTime int64  `json:"cacheExpirationTime,omitempty"`
 }
 
 type HttpController interface {
 	ReloadConf() (err error)
-	InitProxyHTTP(p interface{}, f func(interface{}, *http.Response) error) (err error)
+	InitProxyHTTP(p interface{}, f func(interface{}, *http.Request, *http.Response) error) (err error)
 	ServeHTTP(w http.ResponseWriter, r *http.Request) (err error)
 }
 
@@ -86,7 +95,27 @@ func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
 				}
 			}
 		}
+
+		if common.SWITCH_ON == stHttpProxy.CacheSwitch {
+			util.InitCache(stHttpProxy.LimitObj, time.Duration(stHttpProxy.CacheExpirationTime)*time.Millisecond,
+				time.Duration(60)*time.Second, stHttpProxy.CacheSize)
+		}
+		for _, v := range stHttpProxy.App {
+			if common.SWITCH_ON == v.CacheSwitch {
+				util.InitCache(stHttpProxy.LimitObj+"."+v.Name,
+					time.Duration(v.CacheExpirationTime)*time.Millisecond,
+					time.Duration(60)*time.Second, v.CacheSize)
+			}
+			for _, v1 := range v.Server {
+				if common.SWITCH_ON == v.CacheSwitch {
+					util.InitCache(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name,
+						time.Duration(v1.CacheExpirationTime)*time.Millisecond,
+						time.Duration(60)*time.Second, v1.CacheSize)
+				}
+			}
+		}
 	}
+
 	return
 }
 
@@ -133,7 +162,7 @@ func (h *StHttpController) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.controller.ServeHTTP(w, r)
 }
 
-func ModifyResponse(p interface{}, rsp *http.Response) (err error) {
+func ModifyResponse(p interface{}, req *http.Request, rsp *http.Response) (err error) {
 	stHttpProxy := p.(*StHttpProxyConf)
 	if nil != stHttpProxy {
 		temp := fmt.Sprintf("/%s%s", stHttpProxy.LimitObj, rsp.Request.URL.Path)
@@ -149,5 +178,6 @@ func ModifyResponse(p interface{}, rsp *http.Response) (err error) {
 			return
 		}
 	}
+
 	return nil
 }

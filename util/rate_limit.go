@@ -71,7 +71,8 @@ func addRate(obj string, n, conn int64) (err error) {
 		if 0 == conn {
 			if v.objRate+n > v.maxRate || v.objRatePer+n > v.maxRatePer {
 				common.Warnf("More than the size of the max rate limit.obj=%s,v.objRate=%d, "+
-					"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d", obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer)
+					"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d, v.maxConn=%d",
+					obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer, v.maxConn)
 				return errors.New("More than the size of the max rate limit")
 			}
 			v.objRatePer += n
@@ -79,7 +80,8 @@ func addRate(obj string, n, conn int64) (err error) {
 			vObjRatePer, _ := v.mapobjRatePer[conn]
 			if v.objRate+n > v.maxRate || vObjRatePer+n > v.maxRatePer {
 				common.Warnf("More than the size of the max rate limit.obj=%s,v.objRate=%d, "+
-					"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d", obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer)
+					"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d, v.maxConn=%d",
+					obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer, v.maxConn)
 				return errors.New("More than the size of the max rate limit")
 			}
 			v.mapobjRatePer[conn] = vObjRatePer + n
@@ -129,7 +131,7 @@ func AddTcpConnLimit(obj string, count int64) (err error) {
 
 	for _, v := range ssTemp {
 		if err = addConnLimit(v, count); nil != err {
-			common.Warnf("More than the size of the max rate limit.%d", n)
+			common.Warnf("More than the size of the max rate limit.%d", count)
 			return
 		}
 	}
@@ -148,7 +150,7 @@ func AddHttpConnLimit(obj string, count int64) (err error) {
 	for _, v := range ss {
 		tempObj += v
 		if err = addConnLimit(tempObj, count); nil != err {
-			common.Warnf("More than the size of the max rate limit.%d", n)
+			common.Warnf("More than the size of the max rate limit.%d", count)
 			return
 		}
 		tempObj += "."
@@ -165,7 +167,8 @@ func addConnLimit(obj string, count int64) (err error) {
 		if 0 < count {
 			if v.objConn > v.maxConn {
 				common.Warnf("More than the size of the max rate limit.obj=%s,v.objRate=%d, "+
-					"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d", obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer)
+					"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d, v.maxConn=%d",
+					obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer, v.maxConn)
 				return errors.New("More than the size of the max rate limit")
 			}
 		}

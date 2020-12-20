@@ -44,7 +44,7 @@ type HttpControllerTars struct {
 }
 
 var pCallBackStruct interface{}
-var pCallBackFunc func(p interface{}, rsp *http.Response) error
+var pCallBackFunc func(p interface{}, req *http.Request, rsp *http.Response) error
 
 func (h *HttpControllerTars) ReloadConf() (err error) {
 	if err = common.Conf.GetStruct("http", h); nil != err {
@@ -73,7 +73,7 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 	return
 }
 
-func (h *HttpControllerTars) InitProxyHTTP(p interface{}, f func(p interface{}, rsp *http.Response) error) (err error) {
+func (h *HttpControllerTars) InitProxyHTTP(p interface{}, f func(p interface{}, req *http.Request, rsp *http.Response) error) (err error) {
 	h.mapHttpEndpoint = make(map[string]tars.EndpointManager)
 	h.fileLock = flock.New("/var/lock/gateway-lock-http.lock")
 	h.mapSecret = make(map[string]string)
@@ -175,13 +175,18 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 	return
 }
 
-func ModifyResponse(rsp *http.Response) (err error) {
+func ModifyResponse(req *http.Request, rsp *http.Response) (err error) {
+
 	if nil != pCallBackFunc {
-		if err = pCallBackFunc(pCallBackStruct, rsp); nil != err {
+		if err = pCallBackFunc(pCallBackStruct, req, rsp); nil != err {
 			common.Warnf("More than the size of the max rate limit.")
 			return
 		}
 	}
 
 	return nil
+}
+
+func cackeKeyGet(r *http.Request) {
+	return
 }

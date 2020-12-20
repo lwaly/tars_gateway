@@ -126,3 +126,18 @@ func InetNtoa(ipnr int64) net.IP {
 
 	return net.IPv4(bytes[3], bytes[2], bytes[1], bytes[0])
 }
+
+func IpIsInlist(addr net.Addr, list []string) (isIn bool) {
+	isIn = false
+	ip := addr.String()
+	for _, v := range list {
+		length := len(v)
+		if length <= len(ip) {
+			if v == ip[0:length-1] {
+				isIn = true
+				return
+			}
+		}
+	}
+	return
+}
