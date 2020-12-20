@@ -17,11 +17,13 @@ import (
 )
 
 type StHttpServer struct {
-	Id        uint32 `json:"id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Secret    string `json:"secret,omitempty"`
-	RouteType int    `json:"routeType,omitempty"`
-	Switch    uint32 `json:"switch,omitempty"` //1开启服务
+	Id        uint32   `json:"id,omitempty"`
+	Name      string   `json:"name,omitempty"`
+	Secret    string   `json:"secret,omitempty"`
+	RouteType int      `json:"routeType,omitempty"`
+	Switch    uint32   `json:"switch,omitempty"`    //1开启服务
+	BlackList []string `json:"blackList,omitempty"` //
+	WhiteList []string `json:"whiteList,omitempty"` //
 }
 
 type StHttpApp struct {
@@ -30,17 +32,23 @@ type StHttpApp struct {
 	Server    []StHttpServer `json:"server,omitempty"`
 	Secret    string         `json:"secret,omitempty"`
 	RouteType int            `json:"routeType,omitempty"`
-	Switch    uint32         `json:"switch,omitempty"` //1开启服务
+	Switch    uint32         `json:"switch,omitempty"`    //1开启服务
+	BlackList []string       `json:"blackList,omitempty"` //
+	WhiteList []string       `json:"whiteList,omitempty"` //
 }
 
 type HttpControllerTars struct {
-	mapHttpEndpoint map[string]tars.EndpointManager
-	fileLock        *flock.Flock
-	mapSecret       map[string]string
-	Secret          string      `json:"secret,omitempty"`
-	RouteType       int         `json:"routeType,omitempty"`
-	App             []StHttpApp `json:"app,omitempty"`
-	RouteId         uint64
+	mapHttpEndpoint    map[string]tars.EndpointManager
+	fileLock           *flock.Flock
+	mapSecret          map[string]string
+	Secret             string      `json:"secret,omitempty"`
+	RouteType          int         `json:"routeType,omitempty"`
+	App                []StHttpApp `json:"app,omitempty"`
+	RouteId            uint64
+	mapAppBlackList    map[string][]string
+	mapServerBlackList map[string][]string
+	mapAppWhiteList    map[string][]string
+	mapServerWhiteList map[string][]string
 }
 
 var pCallBackStruct interface{}
@@ -52,6 +60,21 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 		return
 	}
 	for _, value := range h.App {
+		for _, v := range value.Server {
+			common.Infof("#####.%v.%v.%v", v.Secret, value.Secret, h.Secret)
+			if "" != v.Secret && "empty" != v.Secret {
+				h.mapSecret[value.Name+"."+v.Name] = v.Secret
+			} else if "" != value.Secret && "empty" != value.Secret {
+				h.mapSecret[value.Name+"."+v.Name] = value.Secret
+			} else if "" != h.Secret && "empty" != h.Secret {
+				h.mapSecret[value.Name+"."+v.Name] = h.Secret
+			} else {
+				h.mapSecret[value.Name+"."+v.Name] = ""
+			}
+		}
+	}
+
+	for _, value := range h.App {
 		mTemp := make(map[string]string)
 		for _, v := range value.Server {
 			_, ok := mTemp[v.Name]
@@ -59,15 +82,23 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 				common.Errorf("repeat serverId.%v", v)
 				continue
 			}
-			if "" != v.Secret {
-				h.mapSecret[value.Name+"."+v.Name] = v.Secret
-			} else if "empty" != value.Secret {
+
+			h.mapAppWhiteList[value.Name] = value.WhiteList
+			h.mapServerWhiteList[value.Name+"."+v.Name] = v.WhiteList
+		}
+	}
+
+	for _, value := range h.App {
+		mTemp := make(map[string]string)
+		for _, v := range value.Server {
+			_, ok := mTemp[v.Name]
+			if ok {
+				common.Errorf("repeat serverId.%v", v)
 				continue
-			} else if "" != value.Secret {
-				h.mapSecret[value.Name+"."+v.Name] = value.Secret
-			} else {
-				h.mapSecret[value.Name+"."+v.Name] = h.Secret
 			}
+
+			h.mapAppBlackList[value.Name] = value.BlackList
+			h.mapServerBlackList[value.Name+"."+v.Name] = v.BlackList
 		}
 	}
 	return
@@ -77,6 +108,11 @@ func (h *HttpControllerTars) InitProxyHTTP(p interface{}, f func(p interface{}, 
 	h.mapHttpEndpoint = make(map[string]tars.EndpointManager)
 	h.fileLock = flock.New("/var/lock/gateway-lock-http.lock")
 	h.mapSecret = make(map[string]string)
+	h.mapAppBlackList = make(map[string][]string)
+	h.mapServerBlackList = make(map[string][]string)
+	h.mapAppWhiteList = make(map[string][]string)
+	h.mapServerWhiteList = make(map[string][]string)
+
 	pCallBackStruct = p
 	pCallBackFunc = f
 	h.ReloadConf()
@@ -101,23 +137,36 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 		return
 	}
 
+	appWhiteList, _ := h.mapAppWhiteList[a[1]]
+	serverWhiteList, _ := h.mapServerWhiteList[a[1]+"."+a[2]]
+	if 0 != len(appWhiteList) || 0 != len(serverWhiteList) {
+		if !common.IpIsInlist(r.RemoteAddr, appWhiteList) || !common.IpIsInlist(r.RemoteAddr, serverWhiteList) {
+			common.Errorf("addr not in WhiteList.%v", r.RemoteAddr)
+			return
+		}
+	} else {
+		appBlackList, _ := h.mapAppBlackList[a[1]]
+		serverBlackList, _ := h.mapServerBlackList[a[1]+"."+a[2]]
+		if common.IpIsInlist(r.RemoteAddr, appBlackList) || common.IpIsInlist(r.RemoteAddr, serverBlackList) {
+			common.Errorf("addr not in WhiteList.%v", r.RemoteAddr)
+			return
+		}
+	}
 	var uid uint64
-	if "" != h.Secret {
+	secret, _ := h.mapSecret[a[1]+"."+a[2]]
+	if "" != secret {
 		if 0 == strings.Compare(a[3], "Login") || 0 == strings.Compare(a[3], "Register") || 0 == strings.Compare(a[3], "Verify") {
 			common.Infof("user login")
 			uid = 1
 		} else {
 			token := r.Header.Get("Token")
-			secret, _ := h.mapSecret[a[1]+"."+a[2]]
-			if secret != "empty" {
-				claims, err := util.TokenAuth(token, h.Secret)
-				if err != nil {
-					common.Errorf("authentication token fail.%v.%v.%v", token, h.Secret, err)
-					w.Write(common.NewErrorInfo(common.ERR_NO_USER, common.ErrNoUser))
-					return err
-				}
-				uid = claims.Uid
+			claims, err := util.TokenAuth(token, secret)
+			if err != nil {
+				common.Errorf("authentication token fail.%v.%v", token, err)
+				w.Write(common.NewErrorInfo(common.ERR_NO_USER, common.ErrNoUser))
+				return err
 			}
+			uid = claims.Uid
 		}
 	}
 

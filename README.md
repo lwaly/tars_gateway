@@ -7,7 +7,7 @@ tars 网关功能：
 rsa 加密：支持 2 中填充方式 RSA_PKCS1_PADDING，RSA_PKCS1_OAEP_PADDING
 异地登录下线处理：通过消息队列（使用的是 NATS Streaming）实现分布式
 鉴权：使用 jwt token 鉴权方式进行客户端鉴权，身份识别
-单机限速：包括限制连接数，总流量，单连接流量
+单机限速：包括限制连接数，总流量，单连接流量(流量可限制到服务一级，连接数tcp下只能限制到app一级，http限制到服务一级)
 负责均衡：支持轮询与hash
 
 http转发说明：分割url path，第一部分为应用名，第二部分为服务名称与obj对象名。（例：https://github.com/lwaly/tars_gateway/user,lwaly为tars应用名，tars_gateway为tars服务名）
