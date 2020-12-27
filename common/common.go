@@ -127,17 +127,17 @@ func InetNtoa(ipnr int64) net.IP {
 	return net.IPv4(bytes[3], bytes[2], bytes[1], bytes[0])
 }
 
-func IpIsInlist(addr net.Addr, list []string) (isIn bool) {
-	isIn = false
-	ip := addr.String()
-	for _, v := range list {
-		length := len(v)
-		if length <= len(ip) {
-			if v == ip[0:length-1] {
-				isIn = true
-				return
+func IpIsInlist(ip string, list []string) (isIn bool) {
+	ss := strings.Split(ip, ":")
+	if 0 < len(ss) {
+		ip = ss[0]
+		for _, v := range list {
+			if len(ip) >= len(v) {
+				if ip[0:len(v)] == v {
+					return true
+				}
 			}
 		}
 	}
-	return
+	return false
 }

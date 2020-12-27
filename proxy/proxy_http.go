@@ -11,7 +11,7 @@ import (
 
 type StHttpProxyConf struct {
 	Addr                string          `json:"addr,omitempty"`            //监听地址
-	LimitObj            string          `json:"limitObj,omitempty"`        //监听地址
+	LimitObj            string          `json:"limitObj,omitempty"`        //http对象
 	Switch              uint32          `json:"switch,omitempty"`          //1开启服务
 	RateLimitSwitch     uint32          `json:"rateLimitSwitch,omitempty"` //1开启服务
 	MaxConn             int64           `json:"maxConn,omitempty"`         //最大连接数
