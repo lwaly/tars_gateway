@@ -1,11 +1,7 @@
 package proxy_tars
 
 import (
-	"bytes"
-	"crypto/md5"
-	"encoding/base64"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"strconv"
@@ -57,7 +53,8 @@ type HttpControllerTars struct {
 }
 
 var pCallBackStruct interface{}
-var pCallBackFunc func(p interface{}, req *http.Request, rsp *http.Response) error
+var pCallResponseFunc func(p interface{}, rsp *http.Response) error
+var pCallRequestFunc func(p interface{}, w http.ResponseWriter, r *http.Request) (int, error)
 
 func (h *HttpControllerTars) ReloadConf() (err error) {
 	if err = common.Conf.GetStruct("http", h); nil != err {
@@ -109,7 +106,8 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 	return
 }
 
-func (h *HttpControllerTars) InitProxyHTTP(p interface{}, f func(p interface{}, req *http.Request, rsp *http.Response) error) (err error) {
+func (h *HttpControllerTars) InitProxyHTTP(p interface{}, ResponseFunc func(p interface{}, rsp *http.Response) error,
+	RequestFunc func(p interface{}, w http.ResponseWriter, r *http.Request) (int, error)) (err error) {
 	h.mapHttpEndpoint = make(map[string]tars.EndpointManager)
 	h.fileLock = flock.New("/var/lock/gateway-lock-http.lock")
 	h.mapSecret = make(map[string]string)
@@ -119,7 +117,8 @@ func (h *HttpControllerTars) InitProxyHTTP(p interface{}, f func(p interface{}, 
 	h.mapServerWhiteList = make(map[string][]string)
 
 	pCallBackStruct = p
-	pCallBackFunc = f
+	pCallResponseFunc = ResponseFunc
+	pCallRequestFunc = RequestFunc
 	h.ReloadConf()
 	return
 }
@@ -207,39 +206,16 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 
 		if nil != point {
 			inner := fmt.Sprintf("%s:%d", point.Host, point.Port)
-			cacheObj := fmt.Sprintf("%s%s", h.LimitObj, r.URL.Path)
 
-			//查询cache
-			if util.CacheHttpObjExist(cacheObj) {
-				defer r.Body.Close()
-				if body, err := ioutil.ReadAll(r.Body); nil == err {
-					r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
-					ha := md5.New()
-					ha.Write([]byte(fmt.Sprintf("%s%s%v", r.Method, r.URL.Path, body)))
-					cacheKey := base64.StdEncoding.EncodeToString(ha.Sum(nil))
-					r.Header.Add("TARS_CACHE_KEY", cacheKey)
-					r.Header.Add("TARS_CACHE_OBJ", cacheObj)
-					cacheKeyHead := cacheKey + "head"
-					cacheKeyBody := cacheKey + "body"
-					if err, v := util.CacheHttpGet(cacheObj, cacheKeyHead); nil == err {
-						head, okhead := v.(http.Header)
-						if okhead {
-							if err, v := util.CacheHttpGet(cacheObj, cacheKeyBody); nil == err {
-								body, okbody := v.([]byte)
-								if okbody {
-									if _, err = w.Write(body); nil == err {
-										copyHeader(w.Header(), head)
-										return nil
-									} else {
-										common.Errorf("fail to write body.%v", err)
-									}
-								}
-							}
-						}
-
+			if nil != pCallRequestFunc {
+				if code, errTemp := pCallRequestFunc(pCallBackStruct, w, r); common.OK == code && nil != errTemp {
+					if "CACHE" == errTemp.Error() {
+						common.Infof("cache")
+						return
 					}
 				}
 			}
+
 			proxy := &httputil.ReverseProxy{
 				Director: func(req *http.Request) {
 					//设置主机
@@ -262,47 +238,12 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 }
 
 func ModifyResponse(rsp *http.Response) (err error) {
-	defer rsp.Request.Body.Close()
-	body, err := ioutil.ReadAll(rsp.Request.Body)
-	common.Warnf("%v.%v", err, string(body))
-	if nil != pCallBackFunc {
-		if err = pCallBackFunc(pCallBackStruct, nil, rsp); nil != err {
+	if nil != pCallResponseFunc {
+		if err = pCallResponseFunc(pCallBackStruct, rsp); nil != err {
 			common.Warnf("More than the size of the max rate limit.")
 			return
 		}
 	}
-	cacheObj := rsp.Request.Header.Get("TARS_CACHE_OBJ")
-	cacheKey := rsp.Request.Header.Get("TARS_CACHE_KEY")
-	if "" != cacheObj && "" != cacheKey && util.CacheHttpObjExist(cacheObj) {
-		defer rsp.Body.Close()
-		if body, err := ioutil.ReadAll(rsp.Body); nil == err {
-			cacheKeyHead := cacheKey + "head"
-			cacheKeyBody := cacheKey + "body"
-			rsp.Body = ioutil.NopCloser(bytes.NewBuffer(body))
-
-			if err = util.CacheHttpAdd(cacheObj, cacheKeyHead, rsp.Request.Header); nil != err {
-				common.Errorf("%v.%v", err, string(body))
-			} else {
-				if err = util.CacheHttpAdd(cacheObj, cacheKeyBody, body); nil != err {
-					common.Errorf("%v.%v", err, string(body))
-				}
-			}
-		} else {
-			common.Errorf("fail to read body.%v", err)
-		}
-	}
 
 	return nil
-}
-
-func cackeKeyGet(r *http.Request) {
-	return
-}
-
-func copyHeader(dst, src http.Header) {
-	for k, vv := range src {
-		for _, v := range vv {
-			dst.Add(k, v)
-		}
-	}
 }

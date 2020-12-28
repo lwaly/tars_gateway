@@ -51,7 +51,7 @@ type cache struct {
 // Add an item to the cache, replacing any existing item. If the duration is 0
 // (DefaultExpiration), the cache's default expiration time is used. If it is -1
 // (NoExpiration), the item never expires.
-func (c *cache) Set(k string, x interface{}, d time.Duration) {
+func (c *cache) Set(k string, x interface{}, len int, d time.Duration) {
 	// "Inlining" of set
 	var e int64
 	if d == DefaultExpiration {
@@ -59,6 +59,9 @@ func (c *cache) Set(k string, x interface{}, d time.Duration) {
 	}
 	if d > 0 {
 		e = time.Now().Add(d).UnixNano()
+	}
+	if c.cacheSize+int64(len) > c.maxCacheSize {
+		return
 	}
 	c.mu.Lock()
 	c.items[k] = Item{
@@ -86,8 +89,8 @@ func (c *cache) set(k string, x interface{}, d time.Duration) {
 
 // Add an item to the cache, replacing any existing item, using the default
 // expiration.
-func (c *cache) SetDefault(k string, x interface{}) {
-	c.Set(k, x, DefaultExpiration)
+func (c *cache) SetDefault(k string, x interface{}, len int) {
+	c.Set(k, x, len, DefaultExpiration)
 }
 
 // Add an item to the cache only if an item doesn't already exist for the given

@@ -1,7 +1,12 @@
 package proxy
 
 import (
+	"bytes"
+	"crypto/md5"
+	"encoding/base64"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -68,7 +73,8 @@ type StHttpAppServerConf struct {
 
 type HttpController interface {
 	ReloadConf() (err error)
-	InitProxyHTTP(p interface{}, f func(interface{}, *http.Request, *http.Response) error) (err error)
+	InitProxyHTTP(p interface{}, ResponseFunc func(p interface{}, rsp *http.Response) error,
+		RequestFunc func(p interface{}, w http.ResponseWriter, r *http.Request) (int, error)) (err error)
 	ServeHTTP(w http.ResponseWriter, r *http.Request) (err error)
 }
 
@@ -128,7 +134,7 @@ func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
 func StartContentHttpProxy(stHttpProxy *StHttpProxyConf, h HttpController) (err error) {
 	//监听端口
 	controller := &StHttpController{stHttpProxy: stHttpProxy, controller: h}
-	controller.controller.InitProxyHTTP(stHttpProxy, ModifyResponse)
+	controller.controller.InitProxyHTTP(stHttpProxy, ModifyResponse, ModifyRequest)
 	err = http.ListenAndServe(stHttpProxy.Addr, controller)
 
 	if err != nil {
@@ -178,7 +184,7 @@ func (h *StHttpController) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.controller.ServeHTTP(w, r)
 }
 
-func ModifyResponse(p interface{}, req *http.Request, rsp *http.Response) (err error) {
+func ModifyResponse(p interface{}, rsp *http.Response) (err error) {
 	stHttpProxy := p.(*StHttpProxyConf)
 	if nil != stHttpProxy {
 		temp := fmt.Sprintf("%s%s", stHttpProxy.LimitObj, rsp.Request.URL.Path)
@@ -193,7 +199,79 @@ func ModifyResponse(p interface{}, req *http.Request, rsp *http.Response) (err e
 			common.Warnf("More than the size of the max rate limit.%s.%d", temp, n)
 			return
 		}
+
+		cacheObj := rsp.Request.Header.Get("TARS_CACHE_OBJ")
+		cacheKey := rsp.Request.Header.Get("TARS_CACHE_KEY")
+		if "" != cacheObj && "" != cacheKey && util.CacheHttpObjExist(cacheObj) {
+			defer rsp.Body.Close()
+			if body, err := ioutil.ReadAll(rsp.Body); nil == err {
+				cacheKeyHead := cacheKey + "head"
+				cacheKeyBody := cacheKey + "body"
+				rsp.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+
+				if err = util.CacheHttpHeadAdd(cacheObj, cacheKeyHead, rsp.Request.Header); nil != err {
+					common.Errorf("%v.%v", err, string(body))
+				} else {
+					if err = util.CacheHttpBodyAdd(cacheObj, cacheKeyBody, body); nil != err {
+						common.Errorf("%v.%v", err, string(body))
+					}
+				}
+			} else {
+				common.Errorf("fail to read body.%v", err)
+			}
+		}
 	}
 
 	return nil
+}
+
+func ModifyRequest(p interface{}, w http.ResponseWriter, r *http.Request) (code int, err error) {
+	stHttpProxy := p.(*StHttpProxyConf)
+
+	if nil != stHttpProxy {
+		cacheObj := fmt.Sprintf("%s%s", stHttpProxy.LimitObj, r.URL.Path)
+
+		//查询cache
+		if util.CacheHttpObjExist(cacheObj) {
+			defer r.Body.Close()
+			if body, err := ioutil.ReadAll(r.Body); nil == err {
+				r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+				ha := md5.New()
+				ha.Write([]byte(fmt.Sprintf("%s%s%v", r.Method, r.URL.Path, body)))
+				cacheKey := base64.StdEncoding.EncodeToString(ha.Sum(nil))
+				r.Header.Add("TARS_CACHE_KEY", cacheKey)
+				r.Header.Add("TARS_CACHE_OBJ", cacheObj)
+				cacheKeyHead := cacheKey + "head"
+				cacheKeyBody := cacheKey + "body"
+				if err, v := util.CacheHttpHeadGet(cacheObj, cacheKeyHead); nil == err {
+					head, okhead := v.(http.Header)
+					if okhead {
+						if err, v := util.CacheHttpBodyGet(cacheObj, cacheKeyBody); nil == err {
+							body, okbody := v.([]byte)
+							if okbody {
+								if _, err = w.Write(body); nil == err {
+									copyHeader(w.Header(), head)
+									return common.OK, errors.New("CACHE")
+								} else {
+									common.Errorf("fail to write body.%v", err)
+									return common.OK, nil
+								}
+							}
+						}
+					}
+
+				}
+			}
+		}
+	}
+
+	return common.OK, nil
+}
+
+func copyHeader(dst, src http.Header) {
+	for k, vv := range src {
+		for _, v := range vv {
+			dst.Add(k, v)
+		}
+	}
 }
