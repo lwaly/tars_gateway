@@ -15,60 +15,63 @@ import (
 )
 
 type StHttpProxyConf struct {
-	Addr                string          `json:"addr,omitempty"`            //监听地址
-	LimitObj            string          `json:"limitObj,omitempty"`        //http对象
-	Switch              uint32          `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch     uint32          `json:"rateLimitSwitch,omitempty"` //1开启服务
-	MaxConn             int64           `json:"maxConn,omitempty"`         //最大连接数
-	MaxRate             int64           `json:"maxRate,omitempty"`         //最大接收字节数
-	MaxRatePer          int64           `json:"maxRatePer,omitempty"`      //每个连接最大接收字节数
-	ConnCount           int64           `json:"connCount,omitempty"`       //已连接数
-	RateCount           int64           `json:"rateCount,omitempty"`       //已接收字节数
-	RatePerCount        int64           `json:"ratePerCount,omitempty"`    //每个连接已接收字节数
-	Per                 int64           `json:"per,omitempty"`             //限速统计间隔
-	App                 []StHttpAppConf `json:"app,omitempty"`             //限速统计间隔
-	BlackList           []string        `json:"blackList,omitempty"`       //
-	WhiteList           []string        `json:"whiteList,omitempty"`       //
-	CacheSwitch         int64           `json:"cacheSwitch,omitempty"`
-	CacheSize           int64           `json:"cacheSize,omitempty"`
-	CacheExpirationTime int64           `json:"cacheExpirationTime,omitempty"`
+	Addr                     string          `json:"addr,omitempty"`            //监听地址
+	LimitObj                 string          `json:"limitObj,omitempty"`        //http对象
+	Switch                   uint32          `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch          uint32          `json:"rateLimitSwitch,omitempty"` //1开启服务
+	MaxConn                  int64           `json:"maxConn,omitempty"`         //最大连接数
+	MaxRate                  int64           `json:"maxRate,omitempty"`         //最大接收字节数
+	MaxRatePer               int64           `json:"maxRatePer,omitempty"`      //每个连接最大接收字节数
+	ConnCount                int64           `json:"connCount,omitempty"`       //已连接数
+	RateCount                int64           `json:"rateCount,omitempty"`       //已接收字节数
+	RatePerCount             int64           `json:"ratePerCount,omitempty"`    //每个连接已接收字节数
+	Per                      int64           `json:"per,omitempty"`             //限速统计间隔
+	App                      []StHttpAppConf `json:"app,omitempty"`             //限速统计间隔
+	BlackList                []string        `json:"blackList,omitempty"`       //
+	WhiteList                []string        `json:"whiteList,omitempty"`       //
+	CacheSwitch              int64           `json:"cacheSwitch,omitempty"`
+	CacheSize                int64           `json:"cacheSize,omitempty"`
+	CacheExpirationTime      int64           `json:"cacheExpirationTime,omitempty"`
+	CacheExpirationCleanTime string          `json:"cacheExpirationCleanTime,omitempty"`
 }
 
 type StHttpAppConf struct {
-	Switch              uint32                `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch     uint32                `json:"rateLimitSwitch,omitempty"` //1开启服务
-	Name                string                `json:"name,omitempty"`
-	MaxConn             int64                 `json:"maxConn,omitempty"`      //最大连接数
-	MaxRate             int64                 `json:"maxRate,omitempty"`      //最大接收字节数
-	MaxRatePer          int64                 `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
-	ConnCount           int64                 `json:"connCount,omitempty"`    //已连接数
-	RateCount           int64                 `json:"rateCount,omitempty"`    //已接收字节数
-	RatePerCount        int64                 `json:"ratePerCount,omitempty"` //每个连接已接收字节数
-	Per                 int64                 `json:"per,omitempty"`          //限速统计间隔
-	Server              []StHttpAppServerConf `json:"server,omitempty"`       //限速统计间隔
-	BlackList           []string              `json:"blackList,omitempty"`    //
-	WhiteList           []string              `json:"whiteList,omitempty"`    //
-	CacheSwitch         int64                 `json:"cacheSwitch,omitempty"`
-	CacheSize           int64                 `json:"cacheSize,omitempty"`
-	CacheExpirationTime int64                 `json:"cacheExpirationTime,omitempty"`
+	Switch                   uint32                `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch          uint32                `json:"rateLimitSwitch,omitempty"` //1开启服务
+	Name                     string                `json:"name,omitempty"`
+	MaxConn                  int64                 `json:"maxConn,omitempty"`      //最大连接数
+	MaxRate                  int64                 `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer               int64                 `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount                int64                 `json:"connCount,omitempty"`    //已连接数
+	RateCount                int64                 `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount             int64                 `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per                      int64                 `json:"per,omitempty"`          //限速统计间隔
+	Server                   []StHttpAppServerConf `json:"server,omitempty"`       //限速统计间隔
+	BlackList                []string              `json:"blackList,omitempty"`    //
+	WhiteList                []string              `json:"whiteList,omitempty"`    //
+	CacheSwitch              int64                 `json:"cacheSwitch,omitempty"`
+	CacheSize                int64                 `json:"cacheSize,omitempty"`
+	CacheExpirationTime      int64                 `json:"cacheExpirationTime,omitempty"`
+	CacheExpirationCleanTime string                `json:"cacheExpirationCleanTime,omitempty"`
 }
 
 type StHttpAppServerConf struct {
-	Switch              uint32   `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch     uint32   `json:"rateLimitSwitch,omitempty"` //1开启服务
-	Name                string   `json:"name,omitempty"`
-	MaxConn             int64    `json:"maxConn,omitempty"`      //最大连接数
-	MaxRate             int64    `json:"maxRate,omitempty"`      //最大接收字节数
-	MaxRatePer          int64    `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
-	ConnCount           int64    `json:"connCount,omitempty"`    //已连接数
-	RateCount           int64    `json:"rateCount,omitempty"`    //已接收字节数
-	RatePerCount        int64    `json:"ratePerCount,omitempty"` //每个连接已接收字节数
-	Per                 int64    `json:"per,omitempty"`          //限速统计间隔
-	BlackList           []string `json:"blackList,omitempty"`    //
-	WhiteList           []string `json:"whiteList,omitempty"`    //
-	CacheSwitch         int64    `json:"cacheSwitch,omitempty"`
-	CacheSize           int64    `json:"cacheSize,omitempty"`
-	CacheExpirationTime int64    `json:"cacheExpirationTime,omitempty"`
+	Switch                   uint32   `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch          uint32   `json:"rateLimitSwitch,omitempty"` //1开启服务
+	Name                     string   `json:"name,omitempty"`
+	MaxConn                  int64    `json:"maxConn,omitempty"`      //最大连接数
+	MaxRate                  int64    `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer               int64    `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount                int64    `json:"connCount,omitempty"`    //已连接数
+	RateCount                int64    `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount             int64    `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per                      int64    `json:"per,omitempty"`          //限速统计间隔
+	BlackList                []string `json:"blackList,omitempty"`    //
+	WhiteList                []string `json:"whiteList,omitempty"`    //
+	CacheSwitch              int64    `json:"cacheSwitch,omitempty"`
+	CacheSize                int64    `json:"cacheSize,omitempty"`
+	CacheExpirationTime      int64    `json:"cacheExpirationTime,omitempty"`
+	CacheExpirationCleanTime string   `json:"cacheExpirationCleanTime,omitempty"`
 }
 
 type HttpController interface {

@@ -17,6 +17,7 @@
         "cacheSwitch": 1,
         "cacheSize": 1,
         "cacheExpirationTime": 1,
+        "cacheExpirationCleanTime": "0 0 1 * * ?",
         "app": [{
             "id": 1,
             "name": "test",

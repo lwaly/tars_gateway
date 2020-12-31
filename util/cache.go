@@ -18,13 +18,13 @@ func init() {
 	mapCache = make(map[string]*cache.Cache)
 }
 
-func InitCache(obj string, defaultExpiration, cleanupInterval time.Duration, maxCacheSize int64) {
+func InitCache(obj, cacheExpirationCleanTime string, defaultExpiration, cleanupInterval time.Duration, maxCacheSize int64) {
 	common.Infof("obj=%v", obj)
 	_, ok := mapCache[obj]
 	if ok {
 		common.Warnf("repeat cache obj.%v", obj)
 	} else {
-		mapCache[obj] = cache.New(defaultExpiration, cleanupInterval, maxCacheSize)
+		mapCache[obj] = cache.New(cacheExpirationCleanTime, defaultExpiration, cleanupInterval, maxCacheSize)
 	}
 
 	return
@@ -36,7 +36,7 @@ func CacheTcpAdd(obj string, key string, value []byte) (err error) {
 		common.Errorf("error obj.=%s", obj)
 		return errors.New("error obj")
 	}
-	return cacheAdd(ss, key, value, len(value))
+	return cacheAdd(ss, key, value, int64(len(value)))
 }
 
 func CacheHttpBodyAdd(obj string, key string, value []byte) (err error) {
@@ -47,7 +47,7 @@ func CacheHttpBodyAdd(obj string, key string, value []byte) (err error) {
 		return errors.New("error obj")
 	}
 
-	return cacheAdd(ss, key, value, len(value))
+	return cacheAdd(ss, key, value, int64(len(value)))
 }
 
 func CacheHttpHeadAdd(obj string, key string, value interface{}) (err error) {
@@ -63,10 +63,10 @@ func CacheHttpHeadAdd(obj string, key string, value interface{}) (err error) {
 		return
 	}
 
-	return cacheAdd(ss, key, buf.Bytes(), buf.Len())
+	return cacheAdd(ss, key, buf.Bytes(), int64(buf.Len()))
 }
 
-func cacheAdd(obj []string, key string, value interface{}, len int) (err error) {
+func cacheAdd(obj []string, key string, value interface{}, len int64) (err error) {
 	for _, v := range obj {
 		v, ok := mapCache[v]
 		if ok {

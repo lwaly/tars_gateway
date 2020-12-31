@@ -57,16 +57,16 @@ func (sc *shardedCache) bucket(k string) *cache {
 	return sc.cs[djb33(sc.seed, k)%sc.m]
 }
 
-func (sc *shardedCache) Set(k string, x interface{}, len int, d time.Duration) {
+func (sc *shardedCache) Set(k string, x interface{}, len int64, d time.Duration) {
 	sc.bucket(k).Set(k, x, len, d)
 }
 
-func (sc *shardedCache) Add(k string, x interface{}, d time.Duration) error {
-	return sc.bucket(k).Add(k, x, d)
+func (sc *shardedCache) Add(k string, x interface{}, len int64, d time.Duration) error {
+	return sc.bucket(k).Add(k, x, len, d)
 }
 
-func (sc *shardedCache) Replace(k string, x interface{}, d time.Duration) error {
-	return sc.bucket(k).Replace(k, x, d)
+func (sc *shardedCache) Replace(k string, x interface{}, len int64, d time.Duration) error {
+	return sc.bucket(k).Replace(k, x, len, d)
 }
 
 func (sc *shardedCache) Get(k string) (interface{}, bool) {
