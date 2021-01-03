@@ -30,6 +30,7 @@ message MsgHead {
     fixed32 seq         = 6;               ///< 序列号
     fixed64 route_id    = 7;              ///<负载均衡路由字段
     fixed32 encrypt     = 8;              ///<加密方式，0:oaep(rsa v2),1:pkcs1(rsa v1.5)
+    fixed32 cache_is    = 9;              ///<1用缓存,2不用缓存
 }
 
 message MsgBody

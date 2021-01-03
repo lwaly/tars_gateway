@@ -18,13 +18,12 @@ func init() {
 	mapCache = make(map[string]*cache.Cache)
 }
 
-func InitCache(obj, cacheExpirationCleanTime string, defaultExpiration, cleanupInterval time.Duration, maxCacheSize int64) {
-	common.Infof("obj=%v", obj)
+func InitCache(obj, cacheExpirationCleanTime string, defaultExpiration time.Duration, maxCacheSize int64) {
 	_, ok := mapCache[obj]
 	if ok {
 		common.Warnf("repeat cache obj.%v", obj)
 	} else {
-		mapCache[obj] = cache.New(cacheExpirationCleanTime, defaultExpiration, cleanupInterval, maxCacheSize)
+		mapCache[obj] = cache.New(cacheExpirationCleanTime, defaultExpiration, maxCacheSize)
 	}
 
 	return
@@ -40,7 +39,6 @@ func CacheTcpAdd(obj string, key string, value []byte) (err error) {
 }
 
 func CacheHttpBodyAdd(obj string, key string, value []byte) (err error) {
-	common.Infof("obj=%v.key=%s", obj, key)
 	ss := strings.Split(obj, "/")
 	if 3 > len(ss) {
 		common.Errorf("error obj.=%s", obj)
@@ -51,7 +49,6 @@ func CacheHttpBodyAdd(obj string, key string, value []byte) (err error) {
 }
 
 func CacheHttpHeadAdd(obj string, key string, value interface{}) (err error) {
-	common.Infof("obj=%v.key=%s", obj, key)
 	ss := strings.Split(obj, "/")
 	if 3 > len(ss) {
 		common.Errorf("error obj.=%s", obj)
@@ -66,14 +63,20 @@ func CacheHttpHeadAdd(obj string, key string, value interface{}) (err error) {
 	return cacheAdd(ss, key, buf.Bytes(), int64(buf.Len()))
 }
 
-func cacheAdd(obj []string, key string, value interface{}, len int64) (err error) {
-	for _, v := range obj {
-		v, ok := mapCache[v]
+func cacheAdd(obj []string, key string, value interface{}, lenValue int64) (err error) {
+	for i := len(obj); i > 0; i-- {
+		tempObj := ""
+		for j := 0; j < i; j++ {
+			tempObj += obj[j] + "."
+		}
+		tempObj = tempObj[0 : len(tempObj)-1]
+		v, ok := mapCache[tempObj]
 		if ok {
-			v.SetDefault(key, value, len)
+			return v.SetDefault(key, value, lenValue)
 		}
 	}
-	return
+
+	return errors.New("not find")
 }
 
 func CacheTcpGet(obj string, key string) (err error, value interface{}) {
@@ -86,7 +89,6 @@ func CacheTcpGet(obj string, key string) (err error, value interface{}) {
 }
 
 func CacheHttpBodyGet(obj string, key string) (err error, value interface{}) {
-	common.Infof("obj=%v.key=%s", obj, key)
 	ss := strings.Split(obj, "/")
 	if 3 > len(ss) {
 		common.Errorf("error obj.=%s", obj)
@@ -96,7 +98,6 @@ func CacheHttpBodyGet(obj string, key string) (err error, value interface{}) {
 }
 
 func CacheHttpHeadGet(obj string, key string) (err error, value interface{}) {
-	common.Infof("obj=%v.key=%s", obj, key)
 	ss := strings.Split(obj, "/")
 	if 3 > len(ss) {
 		common.Errorf("error obj.=%s", obj)
@@ -119,13 +120,15 @@ func CacheHttpHeadGet(obj string, key string) (err error, value interface{}) {
 }
 
 func cacheGet(obj []string, key string) (err error, value interface{}) {
-	for _, v := range obj {
-		v, ok := mapCache[v]
+	for i := len(obj); i > 0; i-- {
+		tempObj := ""
+		for j := 0; j < i; j++ {
+			tempObj += obj[j] + "."
+		}
+		tempObj = tempObj[0 : len(tempObj)-1]
+		v, ok := mapCache[tempObj]
 		if ok {
-			v1, ok1 := v.Get(key)
-			if ok1 {
-				return nil, v1
-			}
+			return v.Get(key)
 		}
 	}
 	return errors.New("not find"), nil
@@ -141,7 +144,6 @@ func CacheTcpObjExist(obj string) bool {
 }
 
 func CacheHttpObjExist(obj string) bool {
-	common.Infof("obj=%v", obj)
 	ss := strings.Split(obj, "/")
 	if 3 > len(ss) {
 		common.Errorf("error obj.%s", obj)

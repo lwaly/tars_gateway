@@ -69,7 +69,7 @@ func (sc *shardedCache) Replace(k string, x interface{}, len int64, d time.Durat
 	return sc.bucket(k).Replace(k, x, len, d)
 }
 
-func (sc *shardedCache) Get(k string) (interface{}, bool) {
+func (sc *shardedCache) Get(k string) (error, interface{}) {
 	return sc.bucket(k).Get(k)
 }
 

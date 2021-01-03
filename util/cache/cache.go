@@ -3,6 +3,7 @@ package cache
 import (
 	"container/list"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -107,8 +108,8 @@ func (c *cache) set(k string, x interface{}, len int64, d time.Duration) (err er
 
 // Add an item to the cache, replacing any existing item, using the default
 // expiration.
-func (c *cache) SetDefault(k string, x interface{}, len int64) {
-	c.Set(k, x, len, DefaultExpiration)
+func (c *cache) SetDefault(k string, x interface{}, len int64) error {
+	return c.Set(k, x, len, DefaultExpiration)
 }
 
 // Add an item to the cache only if an item doesn't already exist for the given
@@ -144,22 +145,22 @@ func (c *cache) Replace(k string, x interface{}, len int64, d time.Duration) err
 
 // Get an item from the cache. Returns the item or nil, and a bool indicating
 // whether the key was found.
-func (c *cache) Get(k string) (interface{}, bool) {
+func (c *cache) Get(k string) (error, interface{}) {
 	c.mu.RLock()
 	// "Inlining" of get and Expired
 	item, found := c.items[k]
 	if !found {
 		c.mu.RUnlock()
-		return nil, false
+		return errors.New("not find"), nil
 	}
 	if item.Expiration > 0 {
 		if time.Now().UnixNano() > item.Expiration {
 			c.mu.RUnlock()
-			return nil, false
+			return errors.New("expiration"), nil
 		}
 	}
 	c.mu.RUnlock()
-	return item.Object, true
+	return nil, item.Object
 }
 
 // GetWithExpiration returns an item and its expiration time from the cache.
@@ -960,11 +961,14 @@ func (c *cache) DeleteExpired() {
 			break
 		} else {
 			t := itemTime.Value.(int64)
+			if now < t {
+				break
+			}
 			if itemsKey, ok := c.mapItemsKey[t]; ok {
 				for _, k := range itemsKey {
 					// "Inlining" of expired
 					if v, found := c.items[k]; found {
-						if v.Expiration > 0 && now > v.Expiration {
+						if v.Expiration > 0 && now >= v.Expiration {
 							c.delete(k)
 							if nil != c.onEvicted {
 								evictedItems = append(evictedItems, keyAndValue{k, v.Object})
@@ -974,9 +978,7 @@ func (c *cache) DeleteExpired() {
 				}
 				delete(c.mapItemsKey, t)
 			}
-			if now < t {
-				break
-			}
+
 			c.listItemsTimedefault.Remove(itemTime)
 		}
 	}
@@ -1129,8 +1131,7 @@ func (c *cache) Flush() {
 }
 
 type janitor struct {
-	Interval time.Duration
-	stop     chan bool
+	stop chan bool
 }
 
 func (j *janitor) Run(c *cache) {
@@ -1157,40 +1158,40 @@ func stopJanitor(c *Cache) {
 	c.janitor.stop <- true
 }
 
-func runJanitor(c *cache, ci time.Duration) {
+func runJanitor(c *cache) {
 	j := &janitor{
-		Interval: ci,
-		stop:     make(chan bool),
+		stop: make(chan bool),
 	}
 	c.janitor = j
 	go j.Run(c)
 }
 
-func newCache(cacheExpirationCleanTime string, de time.Duration, maxCacheSize int64, m map[string]Item) *cache {
+func newCache(cacheExpirationCleanTime string, de time.Duration, maxCacheSize int64) *cache {
 	if de == 0 {
 		de = -1
 	}
 	c := &cache{
 		defaultExpiration:        de,
-		items:                    m,
+		items:                    make(map[string]Item),
 		maxCacheSize:             maxCacheSize,
 		cacheExpirationCleanTime: cacheExpirationCleanTime,
+		mapItemsKey:              make(map[int64][]string),
 	}
 	return c
 }
 
-func newCacheWithJanitor(cacheExpirationCleanTime string, de time.Duration, ci time.Duration, maxCacheSize int64, m map[string]Item) *Cache {
-	c := newCache(cacheExpirationCleanTime, de, maxCacheSize, m)
+func newCacheWithJanitor(cacheExpirationCleanTime string, de time.Duration, maxCacheSize int64) *Cache {
+	c := newCache(cacheExpirationCleanTime, de, maxCacheSize)
 	// This trick ensures that the janitor goroutine (which--granted it
 	// was enabled--is running DeleteExpired on c forever) does not keep
 	// the returned C object from being garbage collected. When it is
 	// garbage collected, the finalizer stops the janitor goroutine, after
 	// which c can be collected.
 	C := &Cache{c}
-	if ci > 0 {
-		runJanitor(c, ci)
-		runtime.SetFinalizer(C, stopJanitor)
-	}
+
+	runJanitor(c)
+	runtime.SetFinalizer(C, stopJanitor)
+
 	return C
 }
 
@@ -1199,33 +1200,6 @@ func newCacheWithJanitor(cacheExpirationCleanTime string, de time.Duration, ci t
 // the items in the cache never expire (by default), and must be deleted
 // manually. If the cleanup interval is less than one, expired items are not
 // deleted from the cache before calling c.DeleteExpired().
-func New(cacheExpirationCleanTime string, defaultExpiration, cleanupInterval time.Duration, maxCacheSize int64) *Cache {
-	items := make(map[string]Item)
-	return newCacheWithJanitor(cacheExpirationCleanTime, defaultExpiration, cleanupInterval, maxCacheSize, items)
-}
-
-// Return a new cache with a given default expiration duration and cleanup
-// interval. If the expiration duration is less than one (or NoExpiration),
-// the items in the cache never expire (by default), and must be deleted
-// manually. If the cleanup interval is less than one, expired items are not
-// deleted from the cache before calling c.DeleteExpired().
-//
-// NewFrom() also accepts an items map which will serve as the underlying map
-// for the cache. This is useful for starting from a deserialized cache
-// (serialized using e.g. gob.Encode() on c.Items()), or passing in e.g.
-// make(map[string]Item, 500) to improve startup performance when the cache
-// is expected to reach a certain minimum size.
-//
-// Only the cache's methods synchronize access to this map, so it is not
-// recommended to keep any references to the map around after creating a cache.
-// If need be, the map can be accessed at a later point using c.Items() (subject
-// to the same caveat.)
-//
-// Note regarding serialization: When using e.g. gob, make sure to
-// gob.Register() the individual types stored in the cache before encoding a
-// map retrieved with c.Items(), and to register those same types before
-// decoding a blob containing an items map.
-func NewFrom(cacheExpirationCleanTime string, defaultExpiration,
-	cleanupInterval time.Duration, maxCacheSize int64, items map[string]Item) *Cache {
-	return newCacheWithJanitor(cacheExpirationCleanTime, defaultExpiration, cleanupInterval, maxCacheSize, items)
+func New(cacheExpirationCleanTime string, defaultExpiration time.Duration, maxCacheSize int64) *Cache {
+	return newCacheWithJanitor(cacheExpirationCleanTime, defaultExpiration, maxCacheSize)
 }

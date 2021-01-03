@@ -98,34 +98,32 @@ func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
 
 	if common.SWITCH_ON == stHttpProxy.Switch {
 		if common.SWITCH_ON == stHttpProxy.RateLimitSwitch {
-			util.InitRateLimit(stHttpProxy.LimitObj, stHttpProxy.MaxRate, stHttpProxy.MaxRatePer, stHttpProxy.MaxConn, stHttpProxy.Per)
+			util.RateLimitInit(stHttpProxy.LimitObj, stHttpProxy.MaxRate, stHttpProxy.MaxRatePer, stHttpProxy.MaxConn, stHttpProxy.Per)
 		}
 		for _, v := range stHttpProxy.App {
 			if common.SWITCH_ON == v.RateLimitSwitch {
-				util.InitRateLimit(stHttpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
+				util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
 			}
 			for _, v1 := range v.Server {
 				if common.SWITCH_ON == v.RateLimitSwitch {
-					util.InitRateLimit(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
+					util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
 				}
 			}
 		}
 
 		if common.SWITCH_ON == stHttpProxy.CacheSwitch {
-			util.InitCache(stHttpProxy.LimitObj, time.Duration(stHttpProxy.CacheExpirationTime)*time.Millisecond,
-				time.Duration(60)*time.Second, stHttpProxy.CacheSize)
+			util.InitCache(stHttpProxy.LimitObj, stHttpProxy.CacheExpirationCleanTime,
+				time.Duration(stHttpProxy.CacheExpirationTime)*time.Millisecond, stHttpProxy.CacheSize)
 		}
 		for _, v := range stHttpProxy.App {
 			if common.SWITCH_ON == v.CacheSwitch {
-				util.InitCache(stHttpProxy.LimitObj+"."+v.Name,
-					time.Duration(v.CacheExpirationTime)*time.Millisecond,
-					time.Duration(60)*time.Second, v.CacheSize)
+				util.InitCache(stHttpProxy.LimitObj+"."+v.Name, v.CacheExpirationCleanTime,
+					time.Duration(v.CacheExpirationTime)*time.Millisecond, v.CacheSize)
 			}
 			for _, v1 := range v.Server {
 				if common.SWITCH_ON == v.CacheSwitch {
-					util.InitCache(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name,
-						time.Duration(v1.CacheExpirationTime)*time.Millisecond,
-						time.Duration(60)*time.Second, v1.CacheSize)
+					util.InitCache(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.CacheExpirationCleanTime,
+						time.Duration(v1.CacheExpirationTime)*time.Millisecond, v1.CacheSize)
 				}
 			}
 		}
@@ -178,11 +176,11 @@ func (h *StHttpController) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := util.AddHttpConnLimit(h.stHttpProxy.LimitObj+r.URL.Path, 1); nil != err {
+	if err := util.HttpConnLimitAdd(h.stHttpProxy.LimitObj+r.URL.Path, 1); nil != err {
 		common.Errorf("over connect limit.%v", err)
 		return
 	}
-	defer util.AddHttpConnLimit(h.stHttpProxy.LimitObj+r.URL.Path, -1)
+	defer util.HttpConnLimitAdd(h.stHttpProxy.LimitObj+r.URL.Path, -1)
 
 	h.controller.ServeHTTP(w, r)
 }
@@ -198,7 +196,7 @@ func ModifyResponse(p interface{}, rsp *http.Response) (err error) {
 		for k, v := range rsp.Header {
 			n += int64(len(k)) + int64(len(v))
 		}
-		if err = util.AddHttpRate(temp, n, 0); nil != err {
+		if err = util.RateHttpAdd(temp, n, 0); nil != err {
 			common.Warnf("More than the size of the max rate limit.%s.%d", temp, n)
 			return
 		}
@@ -235,7 +233,7 @@ func ModifyRequest(p interface{}, w http.ResponseWriter, r *http.Request) (code 
 		cacheObj := fmt.Sprintf("%s%s", stHttpProxy.LimitObj, r.URL.Path)
 
 		//查询cache
-		if util.CacheHttpObjExist(cacheObj) {
+		if "1" == r.Header.Get("TARS_CACHE") && util.CacheHttpObjExist(cacheObj) {
 			defer r.Body.Close()
 			if body, err := ioutil.ReadAll(r.Body); nil == err {
 				r.Body = ioutil.NopCloser(bytes.NewBuffer(body))

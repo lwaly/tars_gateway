@@ -174,6 +174,16 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 		}
 	}
 
+	//query cache
+	if nil != pCallRequestFunc {
+		if code, errTemp := pCallRequestFunc(pCallBackStruct, w, r); common.OK == code && nil != errTemp {
+			if "CACHE" == errTemp.Error() {
+				common.Infof("cache")
+				return
+			}
+		}
+	}
+
 	obj := fmt.Sprintf("%s.%s.%sObj", a[1], a[2], a[2])
 	common.Infof("init EndpointManager.%s %s,uid=%d", r.URL.Path, obj, uid)
 
@@ -206,16 +216,6 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 
 		if nil != point {
 			inner := fmt.Sprintf("%s:%d", point.Host, point.Port)
-
-			if nil != pCallRequestFunc {
-				if code, errTemp := pCallRequestFunc(pCallBackStruct, w, r); common.OK == code && nil != errTemp {
-					if "CACHE" == errTemp.Error() {
-						common.Infof("cache")
-						return
-					}
-				}
-			}
-
 			proxy := &httputil.ReverseProxy{
 				Director: func(req *http.Request) {
 					//设置主机
