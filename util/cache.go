@@ -1,8 +1,7 @@
 package util
 
 import (
-	"bytes"
-	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -35,7 +34,7 @@ func CacheTcpAdd(obj string, key string, value []byte) (err error) {
 		common.Errorf("error obj.=%s", obj)
 		return errors.New("error obj")
 	}
-	return cacheAdd(ss, key, value, int64(len(value)))
+	return cacheAdd(ss, key, value)
 }
 
 func CacheHttpBodyAdd(obj string, key string, value []byte) (err error) {
@@ -45,25 +44,25 @@ func CacheHttpBodyAdd(obj string, key string, value []byte) (err error) {
 		return errors.New("error obj")
 	}
 
-	return cacheAdd(ss, key, value, int64(len(value)))
+	return cacheAdd(ss, key, value)
 }
 
-func CacheHttpHeadAdd(obj string, key string, value interface{}) (err error) {
+func CacheHttpHeadAdd(obj string, key string, head *http.Header) (err error) {
 	ss := strings.Split(obj, "/")
 	if 3 > len(ss) {
 		common.Errorf("error obj.=%s", obj)
 		return errors.New("error obj")
 	}
-	buf := &bytes.Buffer{}
-	if err = binary.Write(buf, binary.BigEndian, value); nil != err {
-		common.Errorf("binary Write error.=%s,%v", obj, err)
+	var b []byte
+	if b, err = json.Marshal(head); nil != err {
+		common.Errorf("error obj.=%s", obj)
 		return
 	}
 
-	return cacheAdd(ss, key, buf.Bytes(), int64(buf.Len()))
+	return cacheAdd(ss, key, b)
 }
 
-func cacheAdd(obj []string, key string, value interface{}, lenValue int64) (err error) {
+func cacheAdd(obj []string, key string, b []byte) (err error) {
 	for i := len(obj); i > 0; i-- {
 		tempObj := ""
 		for j := 0; j < i; j++ {
@@ -72,7 +71,7 @@ func cacheAdd(obj []string, key string, value interface{}, lenValue int64) (err 
 		tempObj = tempObj[0 : len(tempObj)-1]
 		v, ok := mapCache[tempObj]
 		if ok {
-			return v.SetDefault(key, value, lenValue)
+			return v.SetDefault(key, b, int64(len(b)))
 		}
 	}
 
@@ -88,7 +87,7 @@ func CacheTcpGet(obj string, key string) (err error, value interface{}) {
 	return cacheGet(ss, key)
 }
 
-func CacheHttpBodyGet(obj string, key string) (err error, value interface{}) {
+func cacheHttpGet(obj string, key string) (err error, value interface{}) {
 	ss := strings.Split(obj, "/")
 	if 3 > len(ss) {
 		common.Errorf("error obj.=%s", obj)
@@ -97,26 +96,21 @@ func CacheHttpBodyGet(obj string, key string) (err error, value interface{}) {
 	return cacheGet(ss, key)
 }
 
-func CacheHttpHeadGet(obj string, key string) (err error, value interface{}) {
-	ss := strings.Split(obj, "/")
-	if 3 > len(ss) {
-		common.Errorf("error obj.=%s", obj)
-		return errors.New("error obj"), nil
+func CacheHttpBodyGet(obj string, key string) (err error, value interface{}) {
+	return cacheHttpGet(obj, key)
+}
+
+func CacheHttpHeadGet(obj string, key string) (err error, head http.Header, n int64) {
+	if errTemp, value := cacheHttpGet(obj, key); nil != err {
+		return errTemp, nil, 0
+	} else {
+		if b, ok := value.([]byte); ok {
+			err = json.Unmarshal(b, &head)
+			return err, head, int64(len(b))
+		} else {
+			return errors.New("not find"), nil, 0
+		}
 	}
-	if err, value = cacheGet(ss, key); nil != err {
-		return
-	}
-	head := http.Header{}
-	buf := &bytes.Buffer{}
-	if err = binary.Write(buf, binary.BigEndian, value); nil != err {
-		common.Errorf("binary Write error.=%s", obj)
-		return
-	}
-	if err = binary.Read(buf, binary.BigEndian, head); nil != err {
-		common.Errorf("binary read error.=%s", obj)
-		return
-	}
-	return err, head
 }
 
 func cacheGet(obj []string, key string) (err error, value interface{}) {

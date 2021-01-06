@@ -2,6 +2,8 @@ package util
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httputil"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,47 +58,67 @@ func RateLimitInit(obj string, maxRate, maxRatePer, maxConn, per int64) (err err
 	return
 }
 
-func rateAdd(obj string, n, conn int64) (err error) {
-	if v, ok := mapRateLimit[obj]; ok {
-		v.objMutex.Lock()
-		defer v.objMutex.Unlock()
+func rateAdd(ss []string, n, conn int64) (err error) {
+	pFunc := func(obj string, n, conn int64) (err error) {
+		if v, ok := mapRateLimit[obj]; ok {
+			v.objMutex.Lock()
+			defer v.objMutex.Unlock()
 
-		if time.Now().After(v.reset) {
-			v.reset = time.Now().Add(v.per * time.Millisecond)
-			v.objRate = 0
-			v.objRatePer = 0
-		}
-
-		//http的每次数据访问都是一次tcp连接，判断当次即可
-		if 0 == conn {
-			if v.objRate+n > v.maxRate || v.objRatePer+n > v.maxRatePer {
-				common.Warnf("More than the size of the max rate limit.obj=%s,v.objRate=%d, "+
-					"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d, v.maxConn=%d",
-					obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer, v.maxConn)
-				return errors.New("More than the size of the max rate limit")
+			if time.Now().After(v.reset) {
+				v.reset = time.Now().Add(v.per * time.Millisecond)
+				v.objRate = 0
+				v.objRatePer = 0
 			}
-			v.objRatePer += n
+
+			//http的每次数据访问都是一次tcp连接，判断当次即可
+			if 0 == conn {
+				if v.objRate+n > v.maxRate || v.objRatePer+n > v.maxRatePer {
+					common.Warnf("More than the size of the max rate limit.obj=%s,v.objRate=%d, "+
+						"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d, v.maxConn=%d",
+						obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer, v.maxConn)
+					return errors.New("More than the size of the max rate limit")
+				}
+				v.objRatePer += n
+			} else {
+				vObjRatePer, _ := v.mapobjRatePer[conn]
+				if v.objRate+n > v.maxRate || vObjRatePer+n > v.maxRatePer {
+					common.Warnf("More than the size of the max rate limit.obj=%s,v.objRate=%d, "+
+						"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d, v.maxConn=%d",
+						obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer, v.maxConn)
+					return errors.New("More than the size of the max rate limit")
+				}
+				v.mapobjRatePer[conn] = vObjRatePer + n
+			}
+
+			v.objRate += n
 		} else {
-			vObjRatePer, _ := v.mapobjRatePer[conn]
-			if v.objRate+n > v.maxRate || vObjRatePer+n > v.maxRatePer {
-				common.Warnf("More than the size of the max rate limit.obj=%s,v.objRate=%d, "+
-					"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d, v.maxConn=%d",
-					obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer, v.maxConn)
-				return errors.New("More than the size of the max rate limit")
-			}
-			v.mapobjRatePer[conn] = vObjRatePer + n
+			common.Infof("unlimit obj.key=%s", obj)
+			return
 		}
 
-		v.objRate += n
-	} else {
-		common.Infof("unlimit obj.key=%s", obj)
 		return
 	}
 
+	tempObj := ""
+	ssTemp := []string{}
+	for _, v := range ss {
+		tempObj += v
+		if err = pFunc(tempObj, n, conn); nil != err {
+			for _, v1 := range ssTemp {
+				if errTemp := pFunc(v1, -n, conn); nil != errTemp {
+					common.Warnf("More than the size of the max rate limit.%d", n)
+					continue
+				}
+			}
+			return
+		}
+		ssTemp = append(ssTemp, tempObj)
+		tempObj += "."
+	}
 	return
 }
 
-func RateHttpAdd(obj string, n, conn int64) (err error) {
+func RateHttpAdd(obj string, rsp *http.Response, n int64) (err error) {
 	ss := strings.Split(obj, "/")
 	if 3 > len(ss) {
 		common.Errorf("error obj.key=%s", obj)
@@ -104,41 +126,30 @@ func RateHttpAdd(obj string, n, conn int64) (err error) {
 	}
 
 	ss = ss[0:3]
-	tempObj := ""
-	for _, v := range ss {
-		tempObj += v
-		if err = rateAdd(tempObj, n, conn); nil != err {
-			common.Warnf("More than the size of the max rate limit.%d", n)
+	var b []byte
+	if nil != rsp {
+		if b, err = httputil.DumpResponse(rsp, false); nil != err {
+			common.Errorf("rate limit err.key=%s", obj)
 			return
+		} else {
+			n = rsp.ContentLength + int64(len(b))
 		}
-		tempObj += "."
 	}
-	return
+
+	return rateAdd(ss, n, 0)
 }
 
 func RateAdd(obj string, n, conn int64) (err error) {
-	common.Infof("###### %s %v", obj, mapRateLimit)
 	ss := strings.Split(obj, ".")
 	if 3 > len(ss) {
 		common.Errorf("error obj.key=%s", obj)
 		return errors.New("error obj")
 	}
 
-	ss = ss[0:3]
-	tempObj := ""
-	for _, v := range ss {
-		tempObj += v
-		if err = rateAdd(tempObj, n, conn); nil != err {
-			common.Warnf("More than the size of the max rate limit.%d", n)
-			return
-		}
-		tempObj += "."
-	}
-	return
+	return rateAdd(ss, n, conn)
 }
 
 func TcpConnLimitAdd(obj string, count int64) (err error) {
-	common.Infof("###### %d %s %v", count, obj, mapRateLimit)
 	ss := strings.Split(obj, ".")
 	ssTemp := []string{}
 	if 1 == len(ss) {
@@ -151,13 +162,7 @@ func TcpConnLimitAdd(obj string, count int64) (err error) {
 		return errors.New("error obj")
 	}
 
-	for _, v := range ssTemp {
-		if err = connLimitAdd(v, count); nil != err {
-			common.Warnf("More than the size of the max rate limit.%d", count)
-			return
-		}
-	}
-	return
+	return connLimitAdd(ssTemp, count)
 }
 
 func HttpConnLimitAdd(obj string, count int64) (err error) {
@@ -166,39 +171,48 @@ func HttpConnLimitAdd(obj string, count int64) (err error) {
 		common.Errorf("error obj.key=%s", obj)
 		return errors.New("error obj")
 	}
-
 	ss = ss[0:3]
-	tempObj := ""
-	for _, v := range ss {
-		tempObj += v
-		if err = connLimitAdd(tempObj, count); nil != err {
-			common.Warnf("More than the size of the max rate limit.%d", count)
-			return
-		}
-		tempObj += "."
-	}
-	return
+	return connLimitAdd(ss, count)
 }
 
-func connLimitAdd(obj string, count int64) (err error) {
-	//粗略限连接数，不做复杂的使用锁机制精确限连接数
-	if v, ok := mapRateLimit[obj]; ok {
-		v.objMutex.Lock()
-		defer v.objMutex.Unlock()
+func connLimitAdd(ss []string, count int64) (err error) {
+	pFunc := func(obj string, count int64) (err error) {
+		if v, ok := mapRateLimit[obj]; ok {
+			v.objMutex.Lock()
+			defer v.objMutex.Unlock()
 
-		if 0 < count {
-			if v.objConn+count > v.maxConn {
-				common.Warnf("More than the size of the max rate limit.obj=%s,v.objRate=%d, "+
-					"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d, v.maxConn=%d",
-					obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer, v.maxConn)
-				return errors.New("More than the size of the max rate limit")
+			if 0 < count {
+				if v.objConn+count > v.maxConn {
+					common.Warnf("More than the connect of the max rate limit.obj=%s,v.objRate=%d, "+
+						"v.maxRate,=%d v.objRatePer=%d, v.maxRatePer=%d, v.maxConn=%d",
+						obj, v.objRate, v.maxRate, v.objRatePer, v.maxRatePer, v.maxConn)
+					return errors.New("More than the connect of the max rate limit")
+				}
 			}
+			atomic.AddInt64(&v.objConn, count)
+		} else {
+			common.Infof("unlimit obj.key=%s", obj)
+			return
 		}
-		atomic.AddInt64(&v.objConn, count)
-	} else {
-		common.Infof("unlimit obj.key=%s", obj)
+
 		return
 	}
 
+	tempObj := ""
+	ssTemp := []string{}
+	for _, v := range ss {
+		tempObj += v
+		if err = pFunc(tempObj, count); nil != err {
+			for _, v1 := range ssTemp {
+				if errTemp := pFunc(v1, -count); nil != errTemp {
+					common.Warnf("More than the connect of the max rate limit.%d", count)
+					continue
+				}
+			}
+			return
+		}
+		ssTemp = append(ssTemp, tempObj)
+		tempObj += "."
+	}
 	return
 }

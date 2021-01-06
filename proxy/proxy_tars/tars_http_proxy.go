@@ -63,7 +63,6 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 	}
 	for _, value := range h.App {
 		for _, v := range value.Server {
-			common.Infof("#####.%v.%v.%v", v.Secret, value.Secret, h.Secret)
 			if "" != v.Secret && "empty" != v.Secret {
 				h.mapSecret[value.Name+"."+v.Name] = v.Secret
 			} else if "" != value.Secret && "empty" != value.Secret {
@@ -181,6 +180,9 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 				common.Infof("cache")
 				return
 			}
+		} else if common.ERR_LIMIT == code {
+			w.WriteHeader(502)
+			return
 		}
 	}
 

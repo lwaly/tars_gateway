@@ -188,19 +188,7 @@ func (h *StHttpController) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func ModifyResponse(p interface{}, rsp *http.Response) (err error) {
 	stHttpProxy := p.(*StHttpProxyConf)
 	if nil != stHttpProxy {
-		temp := fmt.Sprintf("%s%s", stHttpProxy.LimitObj, rsp.Request.URL.Path)
-		n := rsp.ContentLength
-		if rsp.ContentLength < 0 {
-			n = 0
-		}
-		for k, v := range rsp.Header {
-			n += int64(len(k)) + int64(len(v))
-		}
-		if err = util.RateHttpAdd(temp, n, 0); nil != err {
-			common.Warnf("More than the size of the max rate limit.%s.%d", temp, n)
-			return
-		}
-
+		//计算是否可缓存，然后在最终得到限速的结果返回，限速不代表不能缓存
 		cacheObj := rsp.Request.Header.Get("TARS_CACHE_OBJ")
 		cacheKey := rsp.Request.Header.Get("TARS_CACHE_KEY")
 		if "" != cacheObj && "" != cacheKey && util.CacheHttpObjExist(cacheObj) {
@@ -210,7 +198,7 @@ func ModifyResponse(p interface{}, rsp *http.Response) (err error) {
 				cacheKeyBody := cacheKey + "body"
 				rsp.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
-				if err = util.CacheHttpHeadAdd(cacheObj, cacheKeyHead, rsp.Request.Header); nil != err {
+				if err = util.CacheHttpHeadAdd(cacheObj, cacheKeyHead, &rsp.Header); nil != err {
 					common.Errorf("%v.%v", err, string(body))
 				} else {
 					if err = util.CacheHttpBodyAdd(cacheObj, cacheKeyBody, body); nil != err {
@@ -220,6 +208,13 @@ func ModifyResponse(p interface{}, rsp *http.Response) (err error) {
 			} else {
 				common.Errorf("fail to read body.%v", err)
 			}
+		}
+
+		temp := fmt.Sprintf("%s%s", stHttpProxy.LimitObj, rsp.Request.URL.Path)
+
+		if err = util.RateHttpAdd(temp, rsp, 0); nil != err {
+			common.Warnf("More than the size of the max rate limit.%s", temp)
+			return
 		}
 	}
 
@@ -244,23 +239,25 @@ func ModifyRequest(p interface{}, w http.ResponseWriter, r *http.Request) (code 
 				r.Header.Add("TARS_CACHE_OBJ", cacheObj)
 				cacheKeyHead := cacheKey + "head"
 				cacheKeyBody := cacheKey + "body"
-				if err, v := util.CacheHttpHeadGet(cacheObj, cacheKeyHead); nil == err {
-					head, okhead := v.(http.Header)
-					if okhead {
-						if err, v := util.CacheHttpBodyGet(cacheObj, cacheKeyBody); nil == err {
-							body, okbody := v.([]byte)
-							if okbody {
-								if _, err = w.Write(body); nil == err {
-									copyHeader(w.Header(), head)
-									return common.OK, errors.New("CACHE")
-								} else {
-									common.Errorf("fail to write body.%v", err)
-									return common.OK, nil
-								}
+				if err, head, n := util.CacheHttpHeadGet(cacheObj, cacheKeyHead); nil == err {
+					if err, v := util.CacheHttpBodyGet(cacheObj, cacheKeyBody); nil == err {
+						body, okbody := v.([]byte)
+						if okbody {
+							temp := fmt.Sprintf("%s%s", stHttpProxy.LimitObj, r.URL.Path)
+
+							if err = util.RateHttpAdd(temp, nil, n+int64(len(body))); nil != err {
+								common.Warnf("More than the size of the max rate limit.%s", temp)
+								return common.ERR_LIMIT, err
+							}
+							if _, err = w.Write(body); nil == err {
+								copyHeader(w.Header(), head)
+								return common.OK, errors.New("CACHE")
+							} else {
+								common.Errorf("fail to write body.%v", err)
+								return common.OK, nil
 							}
 						}
 					}
-
 				}
 			}
 		}

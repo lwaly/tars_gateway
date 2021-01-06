@@ -256,6 +256,9 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 		if 0 == isFirstMsg {
 			if limitObj, err := pHand(&isFirstMsg, reqHead, reqBody); nil != err {
 				common.Errorf("connect close.n=%d", n)
+				if 1 == isFirstMsg {
+					util.TcpConnLimitAdd(limitObj, -1)
+				}
 				session.NoticeClose(infoProtocol)
 				break
 			} else if 1 == isFirstMsg {
