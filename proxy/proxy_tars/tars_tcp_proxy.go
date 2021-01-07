@@ -1,7 +1,9 @@
 package proxy_tars
 
 import (
+	"crypto/md5"
 	"crypto/rsa"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -32,6 +34,7 @@ type StTcpServer struct {
 	Id        uint32   `json:"id,omitempty"`
 	Name      string   `json:"name,omitempty"`
 	RouteType int      `json:"routeType,omitempty"`
+	Switch    uint32   `json:"switch,omitempty"`    //1开启服务
 	BlackList []string `json:"blackList,omitempty"` //
 	WhiteList []string `json:"whiteList,omitempty"` //
 }
@@ -41,8 +44,8 @@ type StTcpApp struct {
 	Name      string        `json:"name,omitempty"`
 	Server    []StTcpServer `json:"server,omitempty"`
 	Secret    string        `json:"secret,omitempty"`
-	Switch    uint32        `json:"switch,omitempty"` //1开启服务
 	RouteType int           `json:"routeType,omitempty"`
+	Switch    uint32        `json:"switch,omitempty"`    //1开启服务
 	BlackList []string      `json:"blackList,omitempty"` //
 	WhiteList []string      `json:"whiteList,omitempty"` //
 }
@@ -50,7 +53,6 @@ type StTcpApp struct {
 type StTarsTcpProxy struct {
 	userCount          int64
 	iSign              uint64
-	mapAppSwitch       map[uint32]uint32
 	mapApp             map[uint32]string
 	mapServer          map[string]map[uint32]string
 	mapAppBlackList    map[uint32][]string
@@ -63,6 +65,7 @@ type StTarsTcpProxy struct {
 	Secret             string     `json:"secret,omitempty"`
 	RouteType          int        `json:"routeType,omitempty"`
 	App                []StTcpApp `json:"app,omitempty"`
+	LimitObj           string     `json:"limitObj,omitempty"`
 	RouteId            uint64
 }
 
@@ -132,7 +135,10 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 			mapApp[value.Id] = value.WhiteList
 		}
 
-		outInfo.mapAppWhiteList[value.Id] = value.WhiteList
+		_, ok = outInfo.mapAppWhiteList[value.Id]
+		if !ok {
+			outInfo.mapAppWhiteList[value.Id] = value.WhiteList
+		}
 
 		mTemp := make(map[uint32][]string)
 		for _, v := range value.Server {
@@ -157,7 +163,10 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 			mapApp[value.Id] = value.BlackList
 		}
 
-		outInfo.mapAppBlackList[value.Id] = value.BlackList
+		_, ok = outInfo.mapAppBlackList[value.Id]
+		if !ok {
+			outInfo.mapAppBlackList[value.Id] = value.BlackList
+		}
 
 		mTemp := make(map[uint32][]string)
 		for _, v := range value.Server {
@@ -172,9 +181,6 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 		outInfo.mapServerBlackList[value.Id] = mTemp
 	}
 
-	for _, value := range outInfo.App {
-		outInfo.mapAppSwitch[value.Id] = value.Switch
-	}
 	return
 }
 
@@ -188,7 +194,6 @@ func (outInfo *StTarsTcpProxy) InitProxy() (err error) {
 	outInfo.mapServerBlackList = make(map[uint32]map[uint32][]string)
 	outInfo.mapAppWhiteList = make(map[uint32][]string)
 	outInfo.mapServerWhiteList = make(map[uint32]map[uint32][]string)
-	outInfo.mapAppSwitch = make(map[uint32]uint32)
 
 	mapUser.Store(uint64(0), &stTarsTcpProxy{reader: make(chan []byte)})
 
@@ -237,22 +242,22 @@ func (outInfo *StTarsTcpProxy) Verify(info interface{}) error {
 	return tempInfo.Verify()
 }
 
-func (outInfo *StTarsTcpProxy) HandleReq(info, body, reqTemp interface{}) (limitObj string, output, reqOut interface{}, err error) {
+func (outInfo *StTarsTcpProxy) HandlePre(info, reqHead, reqBody interface{}) (limitObj string, reqHeadOut, reqBodyOut interface{}, err error) {
 	tempInfo, ok := info.(*stTarsTcpProxy)
 	if !ok {
 		common.Errorf("fail to convert")
 		return "", nil, nil, errors.New("fail to convert")
 	}
-	return tempInfo.HandleReq(body, reqTemp)
+	return tempInfo.HandlePre(reqHead, reqBody)
 }
 
-func (outInfo *StTarsTcpProxy) HandleRsp(info, output, reqOut interface{}) (outHeadRsp []byte, err error) {
+func (outInfo *StTarsTcpProxy) Handle(info, reqHead, reqBody interface{}) (outHeadRsp []byte, err error) {
 	tempInfo, ok := info.(*stTarsTcpProxy)
 	if !ok {
 		common.Errorf("fail to convert")
 		return nil, errors.New("fail to convert")
 	}
-	return tempInfo.HandleRsp(output, reqOut)
+	return tempInfo.Handle(reqHead, reqBody)
 }
 
 func (outInfo *StTarsTcpProxy) IsExit(info interface{}) int {
@@ -278,94 +283,37 @@ func (outInfo *StTarsTcpProxy) Close(info interface{}) {
 func (info *stTarsTcpProxy) InitProxy() {
 }
 
-func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (limitObj string, output, reqOut interface{}, err error) {
+func (info *stTarsTcpProxy) HandlePre(reqHead, reqBody interface{}) (limitObj string, reqHeadOut, reqBodyOut interface{}, err error) {
 	var ok bool
-	reqOutTemp, ok := reqTemp.(MsgHead)
+	reqHeadTemp, ok := reqHead.(MsgHead)
 	if !ok {
 		common.Errorf("fail to convert head")
 		err = errors.New("fail to convert head")
 		return
 	}
 
-	if v, _ := info.outInfo.mapAppSwitch[reqOutTemp.App]; common.SWITCH_ON != v {
-		common.Errorf("app close.%s", reqOutTemp.App)
-		err = errors.New(common.ErrUnknown)
-		info.isExit = CONNECT_CLOSE
-		info.Close()
-		return
-	}
-
-	common.Infof("begin msg.server=%d.cmd=%d.Encrypt=%d.RouteId=%d.seq=%d",
-		reqOutTemp.GetServer(), reqOutTemp.GetServant(), reqOutTemp.GetEncrypt(), reqOutTemp.GetRouteId(), reqOutTemp.GetSeq())
-	if 0 == reqOutTemp.GetBodyLen() && CMD_HEART == reqOutTemp.GetServant() {
-		common.Infof("heart msg")
-		return
-	}
-
-	var rspBody MsgBody
-
-	if nil != body {
-		rspBody, ok = body.(MsgBody)
-		if !ok {
-			common.Errorf("fail to convert head")
-			err = errors.New("fail to convert head")
-			return
-		}
-	}
-
-	if (1 == reqOutTemp.GetEncrypt()) && (nil != info.privateKey) {
-		if rspBody.Body, err = util.Decrypt(rspBody.Body, info.privateKey); nil != err {
-			common.Errorf("fail to Decrypt msg")
-			err = errors.New(common.ErrUnknown)
-			return
-		}
-	} else if (2 == reqOutTemp.GetEncrypt()) && (nil != info.privateKey) {
-		if rspBody.Body, err = util.DecryptPkcs(rspBody.Body, info.privateKey); nil != err {
-			common.Errorf("fail to Decrypt msg")
-			err = errors.New(common.ErrUnknown)
-			return
-		}
-	} else if 3 == reqOutTemp.GetEncrypt() || nil == info.privateKey || 0 == reqOutTemp.GetBodyLen() {
-		common.Infof("do not verify or empty body.%d %d", reqOutTemp.GetBodyLen(), reqOutTemp.GetEncrypt())
-	} else {
-		common.Errorf("fail to convert head")
-		err = errors.New("fail to convert head")
-		return
-	}
-
-	obj, err := info.objFind(&reqOutTemp)
-	limitObj = obj
-	obj += "Obj"
-
-	if v, ok := info.outInfo.mapSecret[reqOutTemp.App]; ok {
-		info.Secret = v
-	}
-	if nil != err {
-		common.Errorf("fail to convert head")
-		err = errors.New("fail to convert head")
-		return
-	}
-
 	isHaswhiteList := 0
-	whiteList, _ := info.outInfo.mapAppWhiteList[reqOutTemp.App]
+	whiteList, _ := info.outInfo.mapAppWhiteList[reqHeadTemp.App]
 	if 0 != len(whiteList) {
 		isHaswhiteList = 1
 		if !common.IpIsInlist(info.Addr, whiteList) {
 			common.Errorf("addr not in WhiteList.%v", info.Addr)
 			info.Close()
 			info.isExit = CONNECT_CLOSE
+			err = errors.New("it's not in whiteList")
 			return
 		}
 	} else {
-		whiteListServer, _ := info.outInfo.mapServerWhiteList[reqOutTemp.App]
+		whiteListServer, _ := info.outInfo.mapServerWhiteList[reqHeadTemp.App]
 		if 0 != len(whiteListServer) {
-			temp, _ := whiteListServer[reqOutTemp.Server]
+			temp, _ := whiteListServer[reqHeadTemp.Server]
 			if 0 != len(temp) {
 				isHaswhiteList = 1
 				if !common.IpIsInlist(info.Addr, temp) {
 					common.Errorf("addr not in WhiteList.%v", info.Addr)
 					info.Close()
 					info.isExit = CONNECT_CLOSE
+					err = errors.New("it's not in whiteList")
 					return
 				}
 			}
@@ -373,44 +321,139 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (limitObj strin
 	}
 
 	if 0 == isHaswhiteList {
-		blackList, _ := info.outInfo.mapAppBlackList[reqOutTemp.App]
+		blackList, _ := info.outInfo.mapAppBlackList[reqHeadTemp.App]
 		if 0 != len(blackList) {
 			if common.IpIsInlist(info.Addr, blackList) {
-				common.Errorf("addr not in WhiteList.%v", info.Addr)
+				common.Errorf("it's in blackList.%v", info.Addr)
 				info.Close()
 				info.isExit = CONNECT_CLOSE
+				err = errors.New("it's in blackList")
 				return
 			}
 		} else {
-			blackListServer, _ := info.outInfo.mapServerBlackList[reqOutTemp.App]
+			blackListServer, _ := info.outInfo.mapServerBlackList[reqHeadTemp.App]
 			if 0 != len(blackListServer) {
-				temp, _ := blackListServer[reqOutTemp.Server]
+				temp, _ := blackListServer[reqHeadTemp.Server]
 				if 0 != len(temp) {
 					if common.IpIsInlist(info.Addr, temp) {
-						common.Errorf("addr not in BlackList.%v", info.Addr)
+						common.Errorf("it's in BlackList.%v", info.Addr)
 						info.Close()
 						info.isExit = CONNECT_CLOSE
+						err = errors.New("it's in blackList")
 						return
 					}
 				}
 			}
 		}
 	}
-	manager, ok := info.outInfo.mapTcpEndpoint[obj]
+
+	if limitObj, err = info.objFind(&reqHeadTemp); nil != err {
+		return
+	}
+
+	common.Infof("begin msg.server=%d.cmd=%d.Encrypt=%d.RouteId=%d.seq=%d",
+		reqHeadTemp.GetServer(), reqHeadTemp.GetServant(), reqHeadTemp.GetEncrypt(), reqHeadTemp.GetRouteId(), reqHeadTemp.GetSeq())
+	if 0 == reqHeadTemp.GetBodyLen() && CMD_HEART == reqHeadTemp.GetServant() {
+		common.Infof("heart msg")
+		return limitObj, reqHeadTemp, nil, nil
+	} else if nil != reqBody {
+
+		var reqBodyTemp MsgBody
+
+		reqBodyTemp, ok = reqBody.(MsgBody)
+		if !ok {
+			common.Errorf("fail to convert head")
+			err = errors.New("fail to convert head")
+			return
+		}
+
+		if (1 == reqHeadTemp.GetEncrypt()) && (nil != info.privateKey) {
+			if reqBodyTemp.Body, err = util.Decrypt(reqBodyTemp.Body, info.privateKey); nil != err {
+				common.Errorf("fail to Decrypt msg")
+				err = errors.New(common.ErrUnknown)
+				return
+			}
+		} else if (2 == reqHeadTemp.GetEncrypt()) && (nil != info.privateKey) {
+			if reqBodyTemp.Body, err = util.DecryptPkcs(reqBodyTemp.Body, info.privateKey); nil != err {
+				common.Errorf("fail to Decrypt msg")
+				err = errors.New(common.ErrUnknown)
+				return
+			}
+		} else if 3 == reqHeadTemp.GetEncrypt() || nil == info.privateKey || 0 == reqHeadTemp.GetBodyLen() {
+			common.Infof("do not verify or empty reqBody.%d %d", reqHeadTemp.GetBodyLen(), reqHeadTemp.GetEncrypt())
+		} else {
+			common.Errorf("fail to convert head")
+			err = errors.New("fail to convert head")
+			return
+		}
+		return limitObj, reqHeadTemp, reqBodyTemp, nil
+	} else {
+		return limitObj, reqHeadTemp, nil, nil
+	}
+}
+
+func (info *stTarsTcpProxy) Handle(reqHead, reqBody interface{}) (msg []byte, err error) {
+	var ok bool
+	reqHeadOut, ok := reqHead.(MsgHead)
+	if !ok {
+		common.Errorf("fail to convert head")
+		err = errors.New("fail to convert head")
+		return
+	}
+	var output Respond
+	var points []*endpoint.Endpoint
+	var manager tars.EndpointManager
+	var obj string
+	var cacheObj string
+	var reqBodyTemp MsgBody
+	var cacheKey string
+	var outBodyRsp []byte
+
+	if 0 == reqHeadOut.GetBodyLen() && CMD_HEART == reqHeadOut.GetServant() {
+		common.Infof("heart msg")
+		goto RET
+	}
+
+	obj, err = info.objFind(&reqHeadOut)
+	if nil != err {
+		return
+	}
+
+	if nil != reqBody {
+		reqBodyTemp, ok = reqBody.(MsgBody)
+		if !ok {
+			common.Errorf("fail to convert head")
+			err = errors.New("fail to convert head")
+			return
+		}
+	}
+
+	if 1 == reqHeadOut.GetCacheIs() {
+		cacheObj = info.outInfo.LimitObj + "." + obj
+		if util.CacheTcpObjExist(cacheObj) {
+			if cacheKey, outBodyRsp, err = cacheFind(cacheObj, &reqHeadOut, &reqBodyTemp); nil == err {
+				common.Infof("cache")
+				goto RET
+			}
+		}
+	}
+
+	obj += "Obj"
+	manager, ok = info.outInfo.mapTcpEndpoint[obj]
 	if !ok {
 		manager = tars.GetManager(comm, obj)
 		info.outInfo.mapTcpEndpoint[obj] = manager
 		common.Infof("new EndpointManager.")
 	}
 
-	points := manager.GetAllEndpoint()
+	points = manager.GetAllEndpoint()
 	if 0 != len(points) {
 		var point *endpoint.Endpoint
 		if 1 == info.outInfo.RouteType {
 			tempId := atomic.AddUint64(&info.outInfo.RouteId, 1)
 			point = points[tempId%uint64(len(points))]
 		} else if 2 == info.outInfo.RouteType {
-			point = points[reqOutTemp.GetRouteId()%uint64(len(points))]
+			point = points[reqHeadOut.GetRouteId()%uint64(len(points))]
 		} else {
 			tempId := atomic.AddUint64(&info.outInfo.RouteId, 1)
 			point = points[tempId%uint64(len(points))]
@@ -432,58 +475,55 @@ func (info *stTarsTcpProxy) HandleReq(body, reqTemp interface{}) (limitObj strin
 					info.mapServer.Store(addr, appObj)
 				}
 			}
-			input := Request{Version: reqOutTemp.GetVersion(), Servant: reqOutTemp.GetServant(), Seq: reqOutTemp.GetSeq(), Uid: reqOutTemp.GetRouteId(), Body: rspBody.GetBody()}
-			outputTemp, err := appObj.Handle(input)
-			if err != nil {
-				common.Errorf("err: %v body=%s extend=%s", err, string(outputTemp.GetBody()[:]), string(outputTemp.GetExtend()[:]))
-				//user.mapServer.Delete(addr)
-				err = errors.New(common.ErrUnknown)
-				return obj, outputTemp, reqOutTemp, err
+			input := Request{Version: reqHeadOut.GetVersion(), Servant: reqHeadOut.GetServant(),
+				Seq: reqHeadOut.GetSeq(), Uid: reqHeadOut.GetRouteId()}
+			if nil != reqBody {
+				input.Body = reqBodyTemp.GetBody()
 			}
-			info.verify(&outputTemp)
-			output = outputTemp
-			reqOut = reqOutTemp
+			output, err = appObj.Handle(input)
+			if err != nil {
+				common.Errorf("err: %v reqBody=%s extend=%s", err, string(output.GetBody()[:]), string(output.GetExtend()[:]))
+				b, errTemp := proto.Marshal(&ErrorRsp{Errinfo: &Errorinfo{ErrorCode: common.ERR_UNKNOWN, ErrorInfo: []byte(common.ErrUnknown)}})
+				if errTemp != nil {
+					common.Errorf("faile to Marshal msg.err: %v", errTemp)
+					return
+				}
+				output.Body = b
+				goto RET
+			}
+			info.verify(&output)
 		}
 	}
-	return
-}
 
-func (info *stTarsTcpProxy) HandleRsp(output, reqOut interface{}) (outHeadRsp []byte, err error) {
-	var ok bool
-	reqOutTemp, ok := reqOut.(MsgHead)
-	if !ok {
-		common.Errorf("fail to convert head")
-		err = errors.New("fail to convert head")
-		return
-	}
-
-	outputTemp, ok := output.(Respond)
-	if !ok {
-		common.Errorf("fail to convert head")
-		err = errors.New("fail to convert head")
-		return
-	}
-
-	var outBodyRsp []byte
-	if CMD_HEART != reqOutTemp.GetServant() {
-		outBodyRsp, err = proto.Marshal(&outputTemp)
-		if err != nil {
-			common.Errorf("faile to Marshal msg.err: %v", err)
-			return
+RET:
+	if nil == outBodyRsp {
+		if CMD_HEART != reqHeadOut.GetServant() {
+			outBodyRsp, err = proto.Marshal(&output)
+			if err != nil {
+				common.Errorf("faile to Marshal msg.err: %v", err)
+				return
+			}
+			reqHeadOut.BodyLen = uint32(len(outBodyRsp))
+			if "" != cacheObj {
+				go cacheAdd(cacheObj, cacheKey, outBodyRsp)
+			}
+		} else {
+			reqHeadOut.BodyLen = 1 //实际无body，保证客户端消息头部44字节
 		}
-		reqOutTemp.BodyLen = uint32(len(outBodyRsp))
 	} else {
-		reqOutTemp.BodyLen = 1
+		reqHeadOut.BodyLen = uint32(len(outBodyRsp))
 	}
 
-	reqOutTemp.Servant += 1
-	outHeadRsp, err = proto.Marshal(&reqOutTemp)
+	reqHeadOut.Servant++
+
+	msg, err = proto.Marshal(&reqHeadOut)
 	if err != nil {
 		common.Errorf("faile to Marshal msg.err: %v", err)
 		return
 	}
 
-	outHeadRsp = append(outHeadRsp, outBodyRsp...)
+	msg = append(msg, outBodyRsp...)
+
 	return
 }
 
@@ -554,26 +594,24 @@ func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
 func (info *stTarsTcpProxy) objFind(reqOut *MsgHead) (strObj string, err error) {
 	app, ok := info.outInfo.mapApp[reqOut.GetApp()]
 	if !ok {
-		common.Errorf("fail to get app name ", reqOut.GetApp())
+		common.Errorf("fail to get app name.%d", reqOut.GetApp())
 		err = errors.New("fail to get app name")
 		return
 	}
 
-	mapAppS, ok := info.outInfo.mapServer[app]
-	if !ok {
-		common.Errorf("fail to get app name ", reqOut.GetApp())
+	if mapAppS, ok := info.outInfo.mapServer[app]; !ok {
+		common.Errorf("fail to get app name.%d", reqOut.GetApp())
 		err = errors.New("fail to get app name ")
 		return
+	} else {
+		if mapSt, ok := mapAppS[reqOut.GetServer()]; !ok {
+			common.Errorf("fail to get app name.%d", reqOut.GetServer())
+			err = errors.New("fail to get app name")
+			return
+		} else {
+			return fmt.Sprintf("%s.%s.%s", app, mapSt, mapSt), nil
+		}
 	}
-
-	mapSt, ok := mapAppS[reqOut.GetServer()]
-	if !ok {
-		common.Errorf("fail to get app name ", reqOut.GetApp())
-		err = errors.New("fail to get app name")
-		return
-	}
-
-	return fmt.Sprintf("%s.%s.%s", app, mapSt, mapSt), nil
 }
 
 func (info *stTarsTcpProxy) Close() {
@@ -618,4 +656,29 @@ func userLoginNotify(uid uint64) {
 		return
 	}
 	util.QueueSend("tars_gateway", b, 1, uint32(ECmd_E_LOGIN_NOTIFY_REQ))
+}
+
+func cacheFind(obj string, head *MsgHead, reqBody *MsgBody) (cacheKey string, rspBody []byte, err error) {
+	ha := md5.New()
+	ha.Write([]byte(fmt.Sprintf("%d%d%d%d%d%v%v", head.Version, head.BodyLen, head.App, head.Server, head.Servant, reqBody.Body, reqBody.Extend)))
+	cacheKey = base64.StdEncoding.EncodeToString(ha.Sum(nil))
+
+	if err, v := util.CacheTcpGet(obj, cacheKey); nil == err {
+		reqBody, okbody := v.([]byte)
+		if okbody {
+			return cacheKey, reqBody, nil
+		}
+	} else {
+		return cacheKey, nil, err
+	}
+
+	return cacheKey, nil, errors.New("not find")
+}
+
+func cacheAdd(obj, cacheKey string, msg []byte) (err error) {
+	if err := util.CacheTcpAdd(obj, cacheKey, msg); nil != err {
+		common.Errorf("%v.%v", err, cacheKey)
+		return err
+	}
+	return nil
 }

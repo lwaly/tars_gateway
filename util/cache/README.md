@@ -1,0 +1,1 @@
+特别声明：此模块实现基于https://github.com/patrickmn/go-cache项目进行二次开发,增加实现存储大小计算。

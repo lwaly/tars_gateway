@@ -43,6 +43,7 @@
                 "maxRate": 100,
                 "maxRatePer": 100,
                 "per": 1000,
+                "switch": 1,
                 "routeType": 1               
             }]
         }]

@@ -12,6 +12,12 @@
         "limitObj": "tars_tcp",
         "secret": "test",
         "routeType": 1,
+        "whiteList":[],
+        "blackList":[],
+        "cacheSwitch": 1,
+        "cacheSize": 1,
+        "cacheExpirationTime": 1,
+        "cacheExpirationCleanTime": "0 0 1 * * ?",
         "app": [{
             "id": 1,
             "name": "test",
@@ -23,6 +29,8 @@
             "secret": "test",
             "routeType": 1,
             "switch": 1,
+            "whiteList":[],
+            "blackList":[],
             "server": [{
                 "id": 1,
                 "name": "test",
@@ -31,7 +39,10 @@
                 "maxRate": 100,
                 "maxRatePer": 100,
                 "per": 1000,
-                "routeType": 1               
+                "routeType": 1
+                "switch": 1,
+                "whiteList":[],
+                "blackList":[]
             }]
         }]
     },
@@ -46,6 +57,8 @@
         "secret": "test",
         "routeType": 1,
         "limitObj": "tars_http",
+        "whiteList":[],
+        "blackList":[],
         "app": [{
             "id": 1,
             "name": "test",
@@ -57,6 +70,8 @@
             "secret": "test",
             "routeType": 1,
             "switch": 1,
+            "whiteList":[],
+            "blackList":[],
             "server": [{
                 "id": 1,
                 "name": "test",
@@ -65,7 +80,9 @@
                 "maxRate": 100,
                 "maxRatePer": 100,
                 "switch": 1,
-                "routeType": 1
+                "routeType": 1,
+                "whiteList":[],
+                "blackList":[],
             }]
         }]
     },

@@ -12,53 +12,65 @@ import (
 )
 
 type StTcpProxyConf struct {
-	LimitObj        string         `json:"limitObj,omitempty"`
-	Timeout         int            `json:"timeout,omitempty"`         //读写超时时间
-	Heartbeat       int            `json:"heartbeat,omitempty"`       //心跳间隔
-	MaxConn         int64          `json:"maxConn,omitempty"`         //最大连接数
-	Addr            string         `json:"addr,omitempty"`            //tcp监听地址
-	MaxRate         int64          `json:"maxRate,omitempty"`         //最大接收字节数
-	MaxRatePer      int64          `json:"maxRatePer,omitempty"`      //每个连接最大接收字节数
-	ConnCount       int64          `json:"connCount,omitempty"`       //已连接数
-	RateCount       int64          `json:"rateCount,omitempty"`       //已接收字节数
-	RatePerCount    int64          `json:"ratePerCount,omitempty"`    //每个连接已接收字节数
-	Per             int64          `json:"per,omitempty"`             //限速统计间隔
-	Switch          uint32         `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch uint32         `json:"rateLimitSwitch,omitempty"` //1开启服务
-	App             []StTcpAppConf `json:"app,omitempty"`             //
-	BlackList       []string       `json:"blackList,omitempty"`       //
-	WhiteList       []string       `json:"whiteList,omitempty"`       //
+	LimitObj                 string         `json:"limitObj,omitempty"`
+	Timeout                  int            `json:"timeout,omitempty"`         //读写超时时间
+	Heartbeat                int            `json:"heartbeat,omitempty"`       //心跳间隔
+	MaxConn                  int64          `json:"maxConn,omitempty"`         //最大连接数
+	Addr                     string         `json:"addr,omitempty"`            //tcp监听地址
+	MaxRate                  int64          `json:"maxRate,omitempty"`         //最大接收字节数
+	MaxRatePer               int64          `json:"maxRatePer,omitempty"`      //每个连接最大接收字节数
+	ConnCount                int64          `json:"connCount,omitempty"`       //已连接数
+	RateCount                int64          `json:"rateCount,omitempty"`       //已接收字节数
+	RatePerCount             int64          `json:"ratePerCount,omitempty"`    //每个连接已接收字节数
+	Per                      int64          `json:"per,omitempty"`             //限速统计间隔
+	Switch                   uint32         `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch          uint32         `json:"rateLimitSwitch,omitempty"` //1开启服务
+	App                      []StTcpAppConf `json:"app,omitempty"`             //
+	BlackList                []string       `json:"blackList,omitempty"`       //
+	WhiteList                []string       `json:"whiteList,omitempty"`       //
+	CacheSwitch              int64          `json:"cacheSwitch,omitempty"`
+	CacheSize                int64          `json:"cacheSize,omitempty"`
+	CacheExpirationTime      int64          `json:"cacheExpirationTime,omitempty"`
+	CacheExpirationCleanTime string         `json:"cacheExpirationCleanTime,omitempty"`
 }
 
 type StTcpAppConf struct {
-	Switch          uint32               `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch uint32               `json:"rateLimitSwitch,omitempty"` //1开启服务
-	Name            string               `json:"name,omitempty"`
-	MaxConn         int64                `json:"maxConn,omitempty"`      //最大连接数
-	MaxRate         int64                `json:"maxRate,omitempty"`      //最大接收字节数
-	MaxRatePer      int64                `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
-	ConnCount       int64                `json:"connCount,omitempty"`    //已连接数
-	RateCount       int64                `json:"rateCount,omitempty"`    //已接收字节数
-	RatePerCount    int64                `json:"ratePerCount,omitempty"` //每个连接已接收字节数
-	Per             int64                `json:"per,omitempty"`          //限速统计间隔
-	Server          []StTcpAppServerConf `json:"server,omitempty"`       //
-	BlackList       []string             `json:"blackList,omitempty"`    //
-	WhiteList       []string             `json:"whiteList,omitempty"`    //
+	Switch                   uint32               `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch          uint32               `json:"rateLimitSwitch,omitempty"` //1开启服务
+	Name                     string               `json:"name,omitempty"`
+	MaxConn                  int64                `json:"maxConn,omitempty"`      //最大连接数
+	MaxRate                  int64                `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer               int64                `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount                int64                `json:"connCount,omitempty"`    //已连接数
+	RateCount                int64                `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount             int64                `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per                      int64                `json:"per,omitempty"`          //限速统计间隔
+	Server                   []StTcpAppServerConf `json:"server,omitempty"`       //
+	BlackList                []string             `json:"blackList,omitempty"`    //
+	WhiteList                []string             `json:"whiteList,omitempty"`    //
+	CacheSwitch              int64                `json:"cacheSwitch,omitempty"`
+	CacheSize                int64                `json:"cacheSize,omitempty"`
+	CacheExpirationTime      int64                `json:"cacheExpirationTime,omitempty"`
+	CacheExpirationCleanTime string               `json:"cacheExpirationCleanTime,omitempty"`
 }
 
 type StTcpAppServerConf struct {
-	Switch          uint32   `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch uint32   `json:"rateLimitSwitch,omitempty"` //1开启服务
-	Name            string   `json:"name,omitempty"`
-	MaxConn         int64    `json:"maxConn,omitempty"`      //最大连接数
-	MaxRate         int64    `json:"maxRate,omitempty"`      //最大接收字节数
-	MaxRatePer      int64    `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
-	ConnCount       int64    `json:"connCount,omitempty"`    //已连接数
-	RateCount       int64    `json:"rateCount,omitempty"`    //已接收字节数
-	RatePerCount    int64    `json:"ratePerCount,omitempty"` //每个连接已接收字节数
-	Per             int64    `json:"per,omitempty"`          //限速统计间隔
-	BlackList       []string `json:"blackList,omitempty"`    //
-	WhiteList       []string `json:"whiteList,omitempty"`    //
+	Switch                   uint32   `json:"switch,omitempty"`          //1开启服务
+	RateLimitSwitch          uint32   `json:"rateLimitSwitch,omitempty"` //1开启服务
+	Name                     string   `json:"name,omitempty"`
+	MaxConn                  int64    `json:"maxConn,omitempty"`      //最大连接数
+	MaxRate                  int64    `json:"maxRate,omitempty"`      //最大接收字节数
+	MaxRatePer               int64    `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
+	ConnCount                int64    `json:"connCount,omitempty"`    //已连接数
+	RateCount                int64    `json:"rateCount,omitempty"`    //已接收字节数
+	RatePerCount             int64    `json:"ratePerCount,omitempty"` //每个连接已接收字节数
+	Per                      int64    `json:"per,omitempty"`          //限速统计间隔
+	BlackList                []string `json:"blackList,omitempty"`    //
+	WhiteList                []string `json:"whiteList,omitempty"`    //
+	CacheSwitch              int64    `json:"cacheSwitch,omitempty"`
+	CacheSize                int64    `json:"cacheSize,omitempty"`
+	CacheExpirationTime      int64    `json:"cacheExpirationTime,omitempty"`
+	CacheExpirationCleanTime string   `json:"cacheExpirationCleanTime,omitempty"`
 }
 
 type StLimit struct {
@@ -71,8 +83,8 @@ type Controller interface {
 	InitProxy() error
 	TcpProxyGet(ip string) (info interface{})
 	Verify(info interface{}) error
-	HandleReq(info, body, reqTemp interface{}) (limitObj string, output, reqOut interface{}, err error)
-	HandleRsp(info, output, reqOut interface{}) (outHeadRsp []byte, err error)
+	HandlePre(info, reqHead, reqBody interface{}) (limitObj string, reqHeadOut, reqBodyOut interface{}, err error)
+	Handle(info, reqHead, reqBody interface{}) (msg []byte, err error)
 	IsExit(info interface{}) int
 	Close(info interface{})
 }
@@ -85,7 +97,10 @@ func ReloadConf(controller Controller, stTcpProxy *StTcpProxyConf) {
 			select {
 			case <-ticker.C:
 				if nil != stTcpProxy {
-					reloadConf(stTcpProxy)
+					err := common.Conf.GetStruct("tcp", stTcpProxy)
+					if err != nil {
+						common.Errorf("fail to get tcp conf.%v", err)
+					}
 				}
 				if nil != controller {
 					controller.ReloadConf()
@@ -97,7 +112,10 @@ func ReloadConf(controller Controller, stTcpProxy *StTcpProxyConf) {
 	return
 }
 
-func reloadConf(stTcpProxy *StTcpProxyConf) (err error) {
+func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
+	//tcp连接配置读取
+	stTcpProxy = new(StTcpProxyConf)
+
 	err = common.Conf.GetStruct("tcp", stTcpProxy)
 	if err != nil {
 		common.Errorf("fail to get tcp conf.%v", err)
@@ -107,34 +125,38 @@ func reloadConf(stTcpProxy *StTcpProxyConf) (err error) {
 	//限速初始化
 	if common.SWITCH_ON == stTcpProxy.Switch {
 		if common.SWITCH_ON == stTcpProxy.RateLimitSwitch {
-			util.InitRateLimit(stTcpProxy.LimitObj, stTcpProxy.MaxRate, stTcpProxy.MaxRatePer, stTcpProxy.MaxConn, stTcpProxy.Per)
-		} else {
-			util.RateLimitDel(stTcpProxy.LimitObj)
+			util.RateLimitInit(stTcpProxy.LimitObj, stTcpProxy.MaxRate, stTcpProxy.MaxRatePer, stTcpProxy.MaxConn, stTcpProxy.Per)
 		}
 		for _, v := range stTcpProxy.App {
 			if common.SWITCH_ON == v.RateLimitSwitch {
-				util.InitRateLimit(stTcpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
-			} else {
-				util.RateLimitDel(stTcpProxy.LimitObj + "." + v.Name)
+				util.RateLimitInit(stTcpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
 			}
 			for _, v1 := range v.Server {
 				if common.SWITCH_ON == v.RateLimitSwitch {
-					util.InitRateLimit(stTcpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
-				} else {
-					util.RateLimitDel(stTcpProxy.LimitObj + "." + v.Name + "." + v1.Name)
+					util.RateLimitInit(stTcpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
+				}
+			}
+		}
+
+		if common.SWITCH_ON == stTcpProxy.CacheSwitch {
+			util.InitCache(stTcpProxy.LimitObj, stTcpProxy.CacheExpirationCleanTime,
+				time.Duration(stTcpProxy.CacheExpirationTime)*time.Millisecond, stTcpProxy.CacheSize)
+		}
+		for _, v := range stTcpProxy.App {
+			if common.SWITCH_ON == v.CacheSwitch {
+				util.InitCache(stTcpProxy.LimitObj+"."+v.Name, v.CacheExpirationCleanTime,
+					time.Duration(v.CacheExpirationTime)*time.Millisecond, v.CacheSize)
+			}
+			for _, v1 := range v.Server {
+				if common.SWITCH_ON == v.CacheSwitch {
+					util.InitCache(stTcpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.CacheExpirationCleanTime,
+						time.Duration(v1.CacheExpirationTime)*time.Millisecond, v1.CacheSize)
 				}
 			}
 		}
 	}
 
 	return
-}
-
-func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
-	//tcp连接配置读取
-	stTcpProxy = new(StTcpProxyConf)
-
-	return stTcpProxy, reloadConf(stTcpProxy)
 }
 
 func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf) {
@@ -150,11 +172,11 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 		return
 	}
 
-	if err := util.AddTcpConnLimit(stTcpProxyConf.LimitObj, 1); nil != err {
+	if err := util.TcpConnLimitAdd(stTcpProxyConf.LimitObj, 1); nil != err {
 		common.Errorf("over connect limit.%v", err)
 		return
 	}
-	defer util.AddTcpConnLimit(stTcpProxyConf.LimitObj, -1)
+	defer util.TcpConnLimitAdd(stTcpProxyConf.LimitObj, -1)
 	var wg sync.WaitGroup
 	infoTcpProxy := session.controller.TcpProxyGet(conn.RemoteAddr().String())
 	ticker := time.NewTicker(time.Millisecond * 500)
@@ -175,9 +197,9 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 	}()
 
 	connId, _ := strconv.ParseInt(fmt.Sprintf("%d", &conn), 10, 64)
-	pHand := func(isFirstMsg *int, body, reqTemp interface{}) (limitObj string, err error) {
+	pHand := func(isFirstMsg *int, reqHead, reqBody interface{}) (limitObj string, err error) {
 		defer wg.Done()
-		tempLimitObj, output, reqOut, tempErr := session.controller.HandleReq(infoTcpProxy, body, reqTemp)
+		tempLimitObj, reqHeadTemp, reqBodyTemp, tempErr := session.controller.HandlePre(infoTcpProxy, reqHead, reqBody)
 		if tempErr != nil {
 			return "", tempErr
 		}
@@ -185,14 +207,14 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 
 		temp := fmt.Sprintf("%s.%s", stTcpProxyConf.LimitObj, limitObj)
 		if 0 == *isFirstMsg {
-			if err = util.AddTcpConnLimit(temp, 1); nil != err {
+			if err = util.TcpConnLimitAdd(temp, 1); nil != err {
 				common.Warnf("over limit connect.%s", limitObj)
 				return
 			}
 			*isFirstMsg = 1
 		}
 
-		msg, tempErr := session.controller.HandleRsp(infoTcpProxy, output, reqOut)
+		msg, tempErr := session.controller.Handle(infoTcpProxy, reqHeadTemp, reqBodyTemp)
 		if tempErr != nil {
 			common.Infof("fail to handle req msg.%v", err)
 			return "", tempErr
@@ -200,7 +222,7 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 
 		//达到限速阀值,直接丢弃消息
 		if "" != stTcpProxyConf.LimitObj {
-			if err = util.AddRate(temp, int64(len(msg)), connId); nil != err {
+			if err = util.RateAdd(temp, int64(len(msg)), connId); nil != err {
 				common.Warnf("More than the size of the max rate limit.%s.%d", temp, len(msg))
 				return
 			}
@@ -214,7 +236,7 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 
 	isFirstMsg := 0
 	for {
-		body, reqTemp, err, n := session.Receive(infoProtocol)
+		reqHead, reqBody, err, n := session.Receive(infoProtocol)
 		if 0 != session.controller.IsExit(infoTcpProxy) {
 			common.Infof("connect close.n=%d", n)
 			session.NoticeClose(infoProtocol)
@@ -232,15 +254,18 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 		}
 		wg.Add(1)
 		if 0 == isFirstMsg {
-			if limitObj, err := pHand(&isFirstMsg, body, reqTemp); nil != err {
+			if limitObj, err := pHand(&isFirstMsg, reqHead, reqBody); nil != err {
 				common.Errorf("connect close.n=%d", n)
+				if 1 == isFirstMsg {
+					util.TcpConnLimitAdd(limitObj, -1)
+				}
 				session.NoticeClose(infoProtocol)
 				break
 			} else if 1 == isFirstMsg {
-				defer util.AddTcpConnLimit(limitObj, -1)
+				defer util.TcpConnLimitAdd(limitObj, -1)
 			}
 		} else {
-			go pHand(&isFirstMsg, body, reqTemp)
+			go pHand(&isFirstMsg, reqHead, reqBody)
 		}
 
 	}

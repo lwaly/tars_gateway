@@ -24,6 +24,7 @@ func main() {
 		`)
 		os.Exit(1)
 	}
+	
 	proxy.InitProxy()
 
 	stHttpProxy, err := proxy.InitHttpProxy()

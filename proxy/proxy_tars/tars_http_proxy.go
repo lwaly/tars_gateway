@@ -38,29 +38,29 @@ type StHttpApp struct {
 }
 
 type HttpControllerTars struct {
-	mapHttpEndpoint    map[string]tars.EndpointManager
-	fileLock           *flock.Flock
-	mapSecret          map[string]string
 	Secret             string      `json:"secret,omitempty"`
 	RouteType          int         `json:"routeType,omitempty"`
 	App                []StHttpApp `json:"app,omitempty"`
+	LimitObj           string      `json:"limitObj,omitempty"` //http对象
+	mapHttpEndpoint    map[string]tars.EndpointManager
+	fileLock           *flock.Flock
+	mapSecret          map[string]string
 	RouteId            uint64
 	mapAppBlackList    map[string][]string
 	mapServerBlackList map[string][]string
 	mapAppWhiteList    map[string][]string
 	mapServerWhiteList map[string][]string
-	mapSwitch          map[string]uint32
 }
 
 var pCallBackStruct interface{}
-var pCallBackFunc func(p interface{}, rsp *http.Response) error
+var pCallResponseFunc func(p interface{}, rsp *http.Response) error
+var pCallRequestFunc func(p interface{}, w http.ResponseWriter, r *http.Request) (int, error)
 
 func (h *HttpControllerTars) ReloadConf() (err error) {
 	if err = common.Conf.GetStruct("http", h); nil != err {
 		common.Errorf("fail to get app info")
 		return
 	}
-
 	for _, value := range h.App {
 		for _, v := range value.Server {
 			if "" != v.Secret && "empty" != v.Secret {
@@ -84,9 +84,9 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 				continue
 			}
 
+			h.mapAppWhiteList[value.Name] = value.WhiteList
 			h.mapServerWhiteList[value.Name+"."+v.Name] = v.WhiteList
 		}
-		h.mapAppWhiteList[value.Name] = value.WhiteList
 	}
 
 	for _, value := range h.App {
@@ -98,28 +98,15 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 				continue
 			}
 
+			h.mapAppBlackList[value.Name] = value.BlackList
 			h.mapServerBlackList[value.Name+"."+v.Name] = v.BlackList
 		}
-		h.mapAppBlackList[value.Name] = value.BlackList
 	}
-
-	for _, value := range h.App {
-		mTemp := make(map[string]string)
-		for _, v := range value.Server {
-			_, ok := mTemp[v.Name]
-			if ok {
-				common.Errorf("repeat serverId.%v", v)
-				continue
-			}
-			h.mapSwitch[value.Name+"."+v.Name] = v.Switch
-		}
-		h.mapSwitch[value.Name] = value.Switch
-	}
-
 	return
 }
 
-func (h *HttpControllerTars) InitProxyHTTP(p interface{}, f func(p interface{}, rsp *http.Response) error) (err error) {
+func (h *HttpControllerTars) InitProxyHTTP(p interface{}, ResponseFunc func(p interface{}, rsp *http.Response) error,
+	RequestFunc func(p interface{}, w http.ResponseWriter, r *http.Request) (int, error)) (err error) {
 	h.mapHttpEndpoint = make(map[string]tars.EndpointManager)
 	h.fileLock = flock.New("/var/lock/gateway-lock-http.lock")
 	h.mapSecret = make(map[string]string)
@@ -127,9 +114,10 @@ func (h *HttpControllerTars) InitProxyHTTP(p interface{}, f func(p interface{}, 
 	h.mapServerBlackList = make(map[string][]string)
 	h.mapAppWhiteList = make(map[string][]string)
 	h.mapServerWhiteList = make(map[string][]string)
-	h.mapSwitch = make(map[string]uint32)
+
 	pCallBackStruct = p
-	pCallBackFunc = f
+	pCallResponseFunc = ResponseFunc
+	pCallRequestFunc = RequestFunc
 	h.ReloadConf()
 	return
 }
@@ -152,13 +140,6 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 		return
 	}
 
-	appSwitch, _ := h.mapSwitch[a[1]]
-	serverSwitch, _ := h.mapSwitch[a[1]+"."+a[2]]
-
-	if common.SWITCH_ON != appSwitch || common.SWITCH_ON != serverSwitch {
-		common.Errorf("app close.%s", r.URL.Path, appSwitch, serverSwitch)
-		return
-	}
 	appWhiteList, _ := h.mapAppWhiteList[a[1]]
 	serverWhiteList, _ := h.mapServerWhiteList[a[1]+"."+a[2]]
 	if 0 != len(appWhiteList) || 0 != len(serverWhiteList) {
@@ -189,6 +170,19 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 				return err
 			}
 			uid = claims.Uid
+		}
+	}
+
+	//query cache
+	if nil != pCallRequestFunc {
+		if code, errTemp := pCallRequestFunc(pCallBackStruct, w, r); common.OK == code && nil != errTemp {
+			if "CACHE" == errTemp.Error() {
+				common.Infof("cache")
+				return
+			}
+		} else if common.ERR_LIMIT == code {
+			w.WriteHeader(502)
+			return
 		}
 	}
 
@@ -224,7 +218,6 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 
 		if nil != point {
 			inner := fmt.Sprintf("%s:%d", point.Host, point.Port)
-
 			proxy := &httputil.ReverseProxy{
 				Director: func(req *http.Request) {
 					//设置主机
@@ -247,8 +240,8 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 }
 
 func ModifyResponse(rsp *http.Response) (err error) {
-	if nil != pCallBackFunc {
-		if err = pCallBackFunc(pCallBackStruct, rsp); nil != err {
+	if nil != pCallResponseFunc {
+		if err = pCallResponseFunc(pCallBackStruct, rsp); nil != err {
 			common.Warnf("More than the size of the max rate limit.")
 			return
 		}

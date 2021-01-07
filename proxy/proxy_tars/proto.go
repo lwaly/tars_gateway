@@ -70,7 +70,7 @@ type protoProtocol struct {
 }
 
 func (sc *protoProtocol) Receive() (interface{}, interface{}, error, int) {
-	var headLength [39]byte
+	var headLength [44]byte
 HEAD_LENGTH:
 	sc.conn.SetReadDeadline(time.Now().Add(sc.timeOut * time.Millisecond))
 	n, err := io.ReadFull(sc.conn, headLength[:])
@@ -98,16 +98,16 @@ HEAD_LENGTH:
 	}
 
 	sc.endtime = time.Now().Unix()
-	var req MsgHead
+	var reqHead MsgHead
 
-	if err = proto.Unmarshal(headLength[:], &req); err != nil {
+	if err = proto.Unmarshal(headLength[:], &reqHead); err != nil {
 		common.Errorf("err:%v", err)
 		return nil, nil, err, 0
 	}
 
-	if 0 == req.GetBodyLen() {
+	if 0 == reqHead.GetBodyLen() {
 		sc.endtime = time.Now().Unix()
-		return nil, req, nil, len(headLength)
+		return reqHead, nil, nil, len(headLength)
 	}
 
 	var head [5]byte
@@ -135,12 +135,12 @@ HEAD:
 
 	sc.endtime = time.Now().Unix()
 
-	if err = proto.Unmarshal(append(headLength[:], head[:]...), &req); err != nil {
+	if err = proto.Unmarshal(append(headLength[:], head[:]...), &reqHead); err != nil {
 		common.Errorf("err:%v", err)
 		return nil, nil, err, 0
 	}
 
-	buf := make([]byte, req.GetBodyLen())
+	buf := make([]byte, reqHead.GetBodyLen())
 BODY:
 	sc.conn.SetReadDeadline(time.Now().Add(sc.timeOut * time.Millisecond))
 	n, err = io.ReadFull(sc.conn, buf)
@@ -164,14 +164,14 @@ BODY:
 		return nil, nil, err, 0
 	}
 
-	var body MsgBody
-	if err = proto.Unmarshal(buf[:], &body); err != nil {
+	var reqBody MsgBody
+	if err = proto.Unmarshal(buf[:], &reqBody); err != nil {
 		common.Errorf("err:%v", err)
 		return nil, nil, err, 0
 	}
 
 	sc.endtime = time.Now().Unix()
-	return body, req, nil, len(headLength) + len(head) + len(buf)
+	return reqHead, reqBody, nil, len(headLength) + len(head) + len(buf)
 }
 
 func (sc *protoProtocol) Send(msg interface{}) error {
