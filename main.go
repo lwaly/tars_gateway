@@ -24,7 +24,7 @@ func main() {
 		`)
 		os.Exit(1)
 	}
-	
+
 	proxy.InitProxy()
 
 	stHttpProxy, err := proxy.InitHttpProxy()
@@ -40,17 +40,11 @@ func main() {
 	}
 
 	if 1 == stHttpProxy.Switch {
-		go proxy.StartContentHttpProxy(stHttpProxy, &proxy_tars.HttpControllerTars{})
+		go proxy.StartHttpProxy(stHttpProxy, &proxy_tars.StTarsHttpProxy{})
 	}
 
 	if 1 == stTcpProxy.Switch {
-		server, err := proxy.Listen("tcp", stTcpProxy, &proxy_tars.ProtoProtocol{}, proxy.HandlerFunc(proxy.ProxyTcpHandle), &proxy_tars.StTarsTcpProxy{})
-		if err != nil {
-			common.Errorf("%v", err)
-			os.Exit(1)
-		}
-
-		go server.Serve()
+		go proxy.Run("tcp", stTcpProxy, &proxy_tars.ProtoProtocol{}, &proxy_tars.StTarsTcpProxy{})
 	}
 
 	common.InstanceGet().Watch()

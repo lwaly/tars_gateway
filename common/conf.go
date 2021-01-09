@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/goinggo/mapstructure"
 )
@@ -17,13 +18,14 @@ var Conf *Config
 
 // Config represents a configuration file.
 type Config struct {
-	filename string
-	cache    *map[string]interface{}
+	updateTime int64
+	filename   string
+	cache      *map[string]interface{}
 }
 
 // New creates a new Config object.
 func NewConf(filename string) error {
-	Conf = &Config{filename, nil}
+	Conf = &Config{time.Now().UnixNano(), filename, nil}
 	return Conf.Reload()
 }
 
@@ -130,19 +132,17 @@ func (config *Config) getValue(key string) (err error, v interface{}) {
 	} else {
 		return errors.New(fmt.Sprintf("error key.%s", key)), nil
 	}
-
-	return
 }
 
 // Reload clears the config cache.
 func (config *Config) Reload() error {
 	cache, err := primeCacheFromFile(config.filename)
-	config.cache = cache
-
 	if err != nil {
 		return err
 	}
 
+	config.cache = cache
+	config.updateTime = time.Now().UnixNano()
 	return nil
 }
 
@@ -158,6 +158,10 @@ func (config *Config) Watch() {
 		l.Println("Caught SIGHUP, reloading config...")
 		config.Reload()
 	}
+}
+
+func (config *Config) LastUpdateTimeGet() int64 {
+	return config.updateTime
 }
 
 func primeCacheFromFile(file string) (*map[string]interface{}, error) {

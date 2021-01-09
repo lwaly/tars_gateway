@@ -12,39 +12,43 @@ var gSessionId uint64 = 0
 
 //会话信息
 type Session struct {
-	id           uint64
-	codec        protocol.Protocol
-	controller   Controller
-	snapshot     interface{}
-	sendCh       chan interface{}
-	sendLock     sync.RWMutex
-	recvLock     sync.Mutex
-	closeFlag    int32
-	closeCh      chan int
-	closeLock    sync.Mutex
-	heartbeat    int
-	rateLimitObj string
+	id             uint64
+	codec          protocol.Protocol
+	controller     Controller
+	conn           net.Conn
+	stTcpProxyConf *StTcpProxyConf
+	snapshot       interface{}
+	sendCh         chan interface{}
+	sendLock       sync.RWMutex
+	recvLock       sync.Mutex
+	closeFlag      int32
+	closeCh        chan int
+	closeLock      sync.Mutex
+	heartbeat      int
+	rateLimitObj   string
 }
 type (
 	//会话处理器
 	Handler interface {
-		HandleSession(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf)
+		HandleSession(session *Session)
 	}
 
-	HandlerFunc func(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf)
+	HandlerFunc func(session *Session)
 )
 
-func (hf HandlerFunc) HandleSession(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf) {
-	hf(session, conn, stTcpProxyConf)
+func (hf HandlerFunc) HandleSession(session *Session) {
+	hf(session)
 }
 
 //新建会话
-func NewSession(codec protocol.Protocol, controller Controller) *Session {
+func NewSession(codec protocol.Protocol, controller Controller, conn net.Conn, stTcpProxyConf *StTcpProxyConf) *Session {
 	session := &Session{
-		id:         atomic.AddUint64(&gSessionId, 1),
-		codec:      codec,
-		controller: controller,
-		closeCh:    make(chan int),
+		id:             atomic.AddUint64(&gSessionId, 1),
+		codec:          codec,
+		controller:     controller,
+		closeCh:        make(chan int),
+		conn:           conn,
+		stTcpProxyConf: stTcpProxyConf,
 	}
 	return session
 }

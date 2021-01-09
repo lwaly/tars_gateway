@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"github.com/lwaly/tars_gateway/common"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/TarsCloud/TarsGo/tars"
 	"github.com/TarsCloud/TarsGo/tars/util/endpoint"
-	"github.com/gofrs/flock"
 	"github.com/golang/protobuf/proto"
 	"golang.org/x/sync/syncmap"
 )
@@ -61,7 +61,7 @@ type StTarsTcpProxy struct {
 	mapServerWhiteList map[uint32]map[uint32][]string
 	mapSecret          map[uint32]string
 	mapTcpEndpoint     map[string]tars.EndpointManager
-	fileLock           *flock.Flock
+	rwMutex            sync.RWMutex
 	Secret             string     `json:"secret,omitempty"`
 	RouteType          int        `json:"routeType,omitempty"`
 	App                []StTcpApp `json:"app,omitempty"`
@@ -86,15 +86,16 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 		common.Errorf("fail to get app info")
 		return
 	}
-
+	outInfo.rwMutex.Lock()
+	defer outInfo.rwMutex.Unlock()
+	mapTemp := make(map[uint32]string)
 	for _, value := range outInfo.App {
-		mapApp := make(map[uint32]string)
-		_, ok := mapApp[value.Id]
+		_, ok := mapTemp[value.Id]
 		if ok {
 			common.Errorf("repeat app.%v", value)
 			continue
 		} else {
-			mapApp[value.Id] = value.Name
+			mapTemp[value.Id] = value.Name
 		}
 
 		_, ok = outInfo.mapApp[value.Id]
@@ -126,16 +127,7 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 	}
 
 	for _, value := range outInfo.App {
-		mapApp := make(map[uint32][]string)
-		_, ok := mapApp[value.Id]
-		if ok {
-			common.Errorf("repeat app.%v", value)
-			continue
-		} else {
-			mapApp[value.Id] = value.WhiteList
-		}
-
-		_, ok = outInfo.mapAppWhiteList[value.Id]
+		_, ok := outInfo.mapAppWhiteList[value.Id]
 		if !ok {
 			outInfo.mapAppWhiteList[value.Id] = value.WhiteList
 		}
@@ -154,16 +146,7 @@ func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
 	}
 
 	for _, value := range outInfo.App {
-		mapApp := make(map[uint32][]string)
-		_, ok := mapApp[value.Id]
-		if ok {
-			common.Errorf("repeat app.%v", value)
-			continue
-		} else {
-			mapApp[value.Id] = value.BlackList
-		}
-
-		_, ok = outInfo.mapAppBlackList[value.Id]
+		_, ok := outInfo.mapAppBlackList[value.Id]
 		if !ok {
 			outInfo.mapAppBlackList[value.Id] = value.BlackList
 		}
@@ -196,8 +179,6 @@ func (outInfo *StTarsTcpProxy) InitProxy() (err error) {
 	outInfo.mapServerWhiteList = make(map[uint32]map[uint32][]string)
 
 	mapUser.Store(uint64(0), &stTarsTcpProxy{reader: make(chan []byte)})
-
-	outInfo.fileLock = flock.New("/var/lock/gateway-lock.lock")
 
 	err = common.Conf.GetStruct("tars", outInfo)
 	if err != nil {
@@ -291,65 +272,22 @@ func (info *stTarsTcpProxy) HandlePre(reqHead, reqBody interface{}) (limitObj st
 		err = errors.New("fail to convert head")
 		return
 	}
+	info.outInfo.rwMutex.RLock()
 
-	isHaswhiteList := 0
-	whiteList, _ := info.outInfo.mapAppWhiteList[reqHeadTemp.App]
-	if 0 != len(whiteList) {
-		isHaswhiteList = 1
-		if !common.IpIsInlist(info.Addr, whiteList) {
-			common.Errorf("addr not in WhiteList.%v", info.Addr)
-			info.Close()
-			info.isExit = CONNECT_CLOSE
-			err = errors.New("it's not in whiteList")
-			return
-		}
-	} else {
-		whiteListServer, _ := info.outInfo.mapServerWhiteList[reqHeadTemp.App]
-		if 0 != len(whiteListServer) {
-			temp, _ := whiteListServer[reqHeadTemp.Server]
-			if 0 != len(temp) {
-				isHaswhiteList = 1
-				if !common.IpIsInlist(info.Addr, temp) {
-					common.Errorf("addr not in WhiteList.%v", info.Addr)
-					info.Close()
-					info.isExit = CONNECT_CLOSE
-					err = errors.New("it's not in whiteList")
-					return
-				}
-			}
-		}
+	if v, ok := info.outInfo.mapSecret[reqHeadTemp.App]; ok {
+		info.Secret = v
 	}
 
-	if 0 == isHaswhiteList {
-		blackList, _ := info.outInfo.mapAppBlackList[reqHeadTemp.App]
-		if 0 != len(blackList) {
-			if common.IpIsInlist(info.Addr, blackList) {
-				common.Errorf("it's in blackList.%v", info.Addr)
-				info.Close()
-				info.isExit = CONNECT_CLOSE
-				err = errors.New("it's in blackList")
-				return
-			}
-		} else {
-			blackListServer, _ := info.outInfo.mapServerBlackList[reqHeadTemp.App]
-			if 0 != len(blackListServer) {
-				temp, _ := blackListServer[reqHeadTemp.Server]
-				if 0 != len(temp) {
-					if common.IpIsInlist(info.Addr, temp) {
-						common.Errorf("it's in BlackList.%v", info.Addr)
-						info.Close()
-						info.isExit = CONNECT_CLOSE
-						err = errors.New("it's in blackList")
-						return
-					}
-				}
-			}
-		}
+	if err = info.whiteBlackQuery(&reqHeadTemp); nil != err {
+		info.outInfo.rwMutex.RUnlock()
+		return
 	}
 
 	if limitObj, err = info.objFind(&reqHeadTemp); nil != err {
+		info.outInfo.rwMutex.RUnlock()
 		return
 	}
+	info.outInfo.rwMutex.RUnlock()
 
 	common.Infof("begin msg.server=%d.cmd=%d.Encrypt=%d.RouteId=%d.seq=%d",
 		reqHeadTemp.GetServer(), reqHeadTemp.GetServant(), reqHeadTemp.GetEncrypt(), reqHeadTemp.GetRouteId(), reqHeadTemp.GetSeq())
@@ -435,6 +373,8 @@ func (info *stTarsTcpProxy) Handle(reqHead, reqBody interface{}) (msg []byte, er
 				common.Infof("cache")
 				goto RET
 			}
+		} else {
+			cacheObj = ""
 		}
 	}
 
@@ -612,6 +552,65 @@ func (info *stTarsTcpProxy) objFind(reqOut *MsgHead) (strObj string, err error) 
 			return fmt.Sprintf("%s.%s.%s", app, mapSt, mapSt), nil
 		}
 	}
+}
+
+func (info *stTarsTcpProxy) whiteBlackQuery(reqHeadTemp *MsgHead) (err error) {
+	isHaswhiteList := 0
+	whiteList, _ := info.outInfo.mapAppWhiteList[reqHeadTemp.App]
+	if 0 != len(whiteList) {
+		isHaswhiteList = 1
+		if !common.IpIsInlist(info.Addr, whiteList) {
+			common.Errorf("addr not in WhiteList.%v", info.Addr)
+			info.Close()
+			info.isExit = CONNECT_CLOSE
+			err = errors.New("it's not in whiteList")
+			return
+		}
+	} else {
+		whiteListServer, _ := info.outInfo.mapServerWhiteList[reqHeadTemp.App]
+		if 0 != len(whiteListServer) {
+			temp, _ := whiteListServer[reqHeadTemp.Server]
+			if 0 != len(temp) {
+				isHaswhiteList = 1
+				if !common.IpIsInlist(info.Addr, temp) {
+					common.Errorf("addr not in WhiteList.%v", info.Addr)
+					info.Close()
+					info.isExit = CONNECT_CLOSE
+					err = errors.New("it's not in whiteList")
+					return
+				}
+			}
+		}
+	}
+
+	if 0 == isHaswhiteList {
+		blackList, _ := info.outInfo.mapAppBlackList[reqHeadTemp.App]
+		if 0 != len(blackList) {
+			if common.IpIsInlist(info.Addr, blackList) {
+				common.Errorf("it's in blackList.%v", info.Addr)
+				info.Close()
+				info.isExit = CONNECT_CLOSE
+				err = errors.New("it's in blackList")
+				return
+			}
+		} else {
+			blackListServer, _ := info.outInfo.mapServerBlackList[reqHeadTemp.App]
+			if 0 != len(blackListServer) {
+				temp, _ := blackListServer[reqHeadTemp.Server]
+				if 0 != len(temp) {
+					if common.IpIsInlist(info.Addr, temp) {
+						common.Errorf("it's in BlackList.%v", info.Addr)
+						info.Close()
+						info.isExit = CONNECT_CLOSE
+						err = errors.New("it's in blackList")
+						return
+					}
+				}
+			}
+		}
+	}
+
+	return
 }
 
 func (info *stTarsTcpProxy) Close() {

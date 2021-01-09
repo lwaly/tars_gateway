@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"io"
 	"net"
 	"strings"
@@ -15,31 +16,18 @@ type ReflectServer struct {
 	protocol       protocol.Protocol //数据收发
 	handler        Handler
 	controller     Controller //业务处理
-	sendChSize     int
-	timeOut        int
-	heartbeat      int
-	rateLimitObj   string
 	stTcpProxyConf *StTcpProxyConf
 }
 
-func NewReflectServer(stTcpProxyConf *StTcpProxyConf, listener net.Listener, protocol protocol.Protocol, handler Handler, controller Controller) (*ReflectServer, error) {
-	if nil == controller {
-		panic("Controller is nil")
-	}
-
-	controller.InitProxy()
-	ReloadConf(controller, stTcpProxyConf)
-	return &ReflectServer{
-		listener:       listener,
-		protocol:       protocol,
-		handler:        handler,
-		controller:     controller,
-		stTcpProxyConf: stTcpProxyConf,
-	}, nil
-}
-
-func (server *ReflectServer) Serve() error {
+func (server *ReflectServer) Serve() (err error) {
 	common.Infof("start tcp server.addr=%s", server.stTcpProxyConf.Addr)
+
+	if err = server.controller.InitProxy(); nil != err {
+		common.Errorf("fail init tcp server.addr=%s", server.stTcpProxyConf.Addr)
+		return
+	}
+	server.reloadConf()
+
 	for {
 		conn, err := Accept(server.listener)
 		if err != nil {
@@ -51,13 +39,34 @@ func (server *ReflectServer) Serve() error {
 	}
 }
 
+func (server *ReflectServer) reloadConf() {
+	//tcp连接配置读取
+	ticker := time.NewTicker(time.Second * 5)
+	confLastUpdateTime := time.Now().UnixNano()
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				if confLastUpdateTime < common.Conf.LastUpdateTimeGet() {
+					common.Infof("config update")
+					confLastUpdateTime = common.Conf.LastUpdateTimeGet()
+					reloadConf(server.stTcpProxyConf)
+					server.controller.ReloadConf()
+				}
+			}
+		}
+	}()
+
+	return
+}
+
 func (server *ReflectServer) Listener() net.Listener {
 	return server.listener
 }
 
 func (server *ReflectServer) handleConnection(conn net.Conn) {
-	if session := NewSession(server.protocol, server.controller); nil != session {
-		server.handler.HandleSession(session, conn, server.stTcpProxyConf)
+	if session := NewSession(server.protocol, server.controller, conn, server.stTcpProxyConf); nil != session {
+		server.handler.HandleSession(session)
 	} else {
 		common.Errorf("fail to create session.")
 	}
@@ -68,13 +77,25 @@ func (server *ReflectServer) Stop() {
 	server.listener.Close()
 }
 
-func Listen(network string, stTcpProxyConf *StTcpProxyConf, protocol protocol.Protocol, handler Handler, controller Controller) (*ReflectServer, error) {
-	listener, err := net.Listen(network, stTcpProxyConf.Addr)
-	if err != nil {
-		return nil, err
+func Run(network string, stTcpProxyConf *StTcpProxyConf, protocol protocol.Protocol, controller Controller) (err error) {
+	if nil == controller || nil == stTcpProxyConf {
+		return errors.New("Controller or stTcpProxyConf is nil")
 	}
 
-	return NewReflectServer(stTcpProxyConf, listener, protocol, handler, controller)
+	listener, err := net.Listen(network, stTcpProxyConf.Addr)
+	if err != nil {
+		return err
+	}
+
+	server := &ReflectServer{
+		listener:       listener,
+		protocol:       protocol,
+		handler:        HandlerFunc(ProxyTcpHandle),
+		controller:     controller,
+		stTcpProxyConf: stTcpProxyConf,
+	}
+
+	return server.Serve()
 }
 
 func Accept(listener net.Listener) (net.Conn, error) {

@@ -86,45 +86,52 @@ type StHttpController struct {
 	stHttpProxy *StHttpProxyConf
 }
 
-func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
-	//tcp连接配置读取
-	stHttpProxy = new(StHttpProxyConf)
-
+func reloadHttpConf(stHttpProxy *StHttpProxyConf) (err error) {
 	err = common.Conf.GetStruct("http", stHttpProxy)
 	if err != nil {
 		common.Errorf("fail to get http conf.%v", err)
 		return
 	}
 
-	if common.SWITCH_ON == stHttpProxy.Switch {
-		if common.SWITCH_ON == stHttpProxy.RateLimitSwitch {
-			util.RateLimitInit(stHttpProxy.LimitObj, stHttpProxy.MaxRate, stHttpProxy.MaxRatePer, stHttpProxy.MaxConn, stHttpProxy.Per)
+	if common.SWITCH_ON == stHttpProxy.RateLimitSwitch {
+		util.RateLimitInit(stHttpProxy.LimitObj, stHttpProxy.MaxRate, stHttpProxy.MaxRatePer, stHttpProxy.MaxConn, stHttpProxy.Per)
+	} else if "" != stHttpProxy.LimitObj {
+		util.RateLimitInit(stHttpProxy.LimitObj, 0, 0, 0, 0)
+	}
+	for _, v := range stHttpProxy.App {
+		if common.SWITCH_ON == v.RateLimitSwitch {
+			util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
+		} else if "" != stHttpProxy.LimitObj {
+			util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name, 0, 0, 0, 0)
 		}
-		for _, v := range stHttpProxy.App {
+		for _, v1 := range v.Server {
 			if common.SWITCH_ON == v.RateLimitSwitch {
-				util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
-			}
-			for _, v1 := range v.Server {
-				if common.SWITCH_ON == v.RateLimitSwitch {
-					util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
-				}
+				util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
+			} else if "" != stHttpProxy.LimitObj {
+				util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, 0, 0, 0, 0)
 			}
 		}
+	}
 
-		if common.SWITCH_ON == stHttpProxy.CacheSwitch {
-			util.InitCache(stHttpProxy.LimitObj, stHttpProxy.CacheExpirationCleanTime,
-				time.Duration(stHttpProxy.CacheExpirationTime)*time.Millisecond, stHttpProxy.CacheSize)
+	if common.SWITCH_ON == stHttpProxy.CacheSwitch {
+		util.InitCache(stHttpProxy.LimitObj, stHttpProxy.CacheExpirationCleanTime,
+			time.Duration(stHttpProxy.CacheExpirationTime)*time.Millisecond, stHttpProxy.CacheSize)
+	} else if "" != stHttpProxy.LimitObj {
+		util.InitCache(stHttpProxy.LimitObj, "", 0, 0)
+	}
+	for _, v := range stHttpProxy.App {
+		if common.SWITCH_ON == v.CacheSwitch {
+			util.InitCache(stHttpProxy.LimitObj+"."+v.Name, v.CacheExpirationCleanTime,
+				time.Duration(v.CacheExpirationTime)*time.Millisecond, v.CacheSize)
+		} else if "" != stHttpProxy.LimitObj {
+			util.InitCache(stHttpProxy.LimitObj+"."+v.Name, "", 0, 0)
 		}
-		for _, v := range stHttpProxy.App {
+		for _, v1 := range v.Server {
 			if common.SWITCH_ON == v.CacheSwitch {
-				util.InitCache(stHttpProxy.LimitObj+"."+v.Name, v.CacheExpirationCleanTime,
-					time.Duration(v.CacheExpirationTime)*time.Millisecond, v.CacheSize)
-			}
-			for _, v1 := range v.Server {
-				if common.SWITCH_ON == v.CacheSwitch {
-					util.InitCache(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.CacheExpirationCleanTime,
-						time.Duration(v1.CacheExpirationTime)*time.Millisecond, v1.CacheSize)
-				}
+				util.InitCache(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.CacheExpirationCleanTime,
+					time.Duration(v1.CacheExpirationTime)*time.Millisecond, v1.CacheSize)
+			} else if "" != stHttpProxy.LimitObj {
+				util.InitCache(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, "", 0, 0)
 			}
 		}
 	}
@@ -132,8 +139,14 @@ func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
 	return
 }
 
-func StartContentHttpProxy(stHttpProxy *StHttpProxyConf, h HttpController) (err error) {
+func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
+	stHttpProxy = new(StHttpProxyConf)
+	return stHttpProxy, reloadHttpConf(stHttpProxy)
+}
+
+func StartHttpProxy(stHttpProxy *StHttpProxyConf, h HttpController) (err error) {
 	//监听端口
+
 	controller := &StHttpController{stHttpProxy: stHttpProxy, controller: h}
 	controller.controller.InitProxyHTTP(stHttpProxy, ModifyResponse, ModifyRequest)
 	err = http.ListenAndServe(stHttpProxy.Addr, controller)
@@ -144,17 +157,14 @@ func StartContentHttpProxy(stHttpProxy *StHttpProxyConf, h HttpController) (err 
 	}
 
 	ticker := time.NewTicker(time.Second * 5)
+	confLastUpdateTime := time.Now().UnixNano()
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				if nil != stHttpProxy {
-					err := common.Conf.GetStruct("http", stHttpProxy)
-					if err != nil {
-						common.Errorf("fail to get http conf.%v", err)
-					}
-				}
-				if nil != controller.controller {
+				if confLastUpdateTime < common.Conf.LastUpdateTimeGet() {
+					confLastUpdateTime = common.Conf.LastUpdateTimeGet()
+					reloadHttpConf(stHttpProxy)
 					controller.controller.ReloadConf()
 				}
 			}

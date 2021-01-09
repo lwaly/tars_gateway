@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"fmt"
-	"net"
 	"strconv"
 	"sync"
 	"time"
@@ -89,33 +88,8 @@ type Controller interface {
 	Close(info interface{})
 }
 
-func ReloadConf(controller Controller, stTcpProxy *StTcpProxyConf) {
+func reloadConf(stTcpProxy *StTcpProxyConf) (err error) {
 	//tcp连接配置读取
-	ticker := time.NewTicker(time.Second * 5)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				if nil != stTcpProxy {
-					err := common.Conf.GetStruct("tcp", stTcpProxy)
-					if err != nil {
-						common.Errorf("fail to get tcp conf.%v", err)
-					}
-				}
-				if nil != controller {
-					controller.ReloadConf()
-				}
-			}
-		}
-	}()
-
-	return
-}
-
-func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
-	//tcp连接配置读取
-	stTcpProxy = new(StTcpProxyConf)
-
 	err = common.Conf.GetStruct("tcp", stTcpProxy)
 	if err != nil {
 		common.Errorf("fail to get tcp conf.%v", err)
@@ -123,35 +97,46 @@ func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
 	}
 
 	//限速初始化
-	if common.SWITCH_ON == stTcpProxy.Switch {
-		if common.SWITCH_ON == stTcpProxy.RateLimitSwitch {
-			util.RateLimitInit(stTcpProxy.LimitObj, stTcpProxy.MaxRate, stTcpProxy.MaxRatePer, stTcpProxy.MaxConn, stTcpProxy.Per)
+	if common.SWITCH_ON == stTcpProxy.RateLimitSwitch {
+		util.RateLimitInit(stTcpProxy.LimitObj, stTcpProxy.MaxRate, stTcpProxy.MaxRatePer, stTcpProxy.MaxConn, stTcpProxy.Per)
+	} else if "" != stTcpProxy.LimitObj {
+		util.RateLimitInit(stTcpProxy.LimitObj, 0, 0, 0, 0)
+	}
+	for _, v := range stTcpProxy.App {
+		if common.SWITCH_ON == v.RateLimitSwitch {
+			util.RateLimitInit(stTcpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
+		} else if "" != stTcpProxy.LimitObj {
+			util.RateLimitInit(stTcpProxy.LimitObj+"."+v.Name, 0, 0, 0, 0)
 		}
-		for _, v := range stTcpProxy.App {
+		for _, v1 := range v.Server {
 			if common.SWITCH_ON == v.RateLimitSwitch {
-				util.RateLimitInit(stTcpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
-			}
-			for _, v1 := range v.Server {
-				if common.SWITCH_ON == v.RateLimitSwitch {
-					util.RateLimitInit(stTcpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
-				}
+				util.RateLimitInit(stTcpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
+			} else if "" != stTcpProxy.LimitObj {
+				util.RateLimitInit(stTcpProxy.LimitObj+"."+v.Name+"."+v1.Name, 0, 0, 0, 0)
 			}
 		}
+	}
 
-		if common.SWITCH_ON == stTcpProxy.CacheSwitch {
-			util.InitCache(stTcpProxy.LimitObj, stTcpProxy.CacheExpirationCleanTime,
-				time.Duration(stTcpProxy.CacheExpirationTime)*time.Millisecond, stTcpProxy.CacheSize)
+	//缓存初始化
+	if common.SWITCH_ON == stTcpProxy.CacheSwitch {
+		util.InitCache(stTcpProxy.LimitObj, stTcpProxy.CacheExpirationCleanTime,
+			time.Duration(stTcpProxy.CacheExpirationTime)*time.Millisecond, stTcpProxy.CacheSize)
+	} else if "" != stTcpProxy.LimitObj {
+		util.InitCache(stTcpProxy.LimitObj, "", 0, 0)
+	}
+	for _, v := range stTcpProxy.App {
+		if common.SWITCH_ON == v.CacheSwitch {
+			util.InitCache(stTcpProxy.LimitObj+"."+v.Name, v.CacheExpirationCleanTime,
+				time.Duration(v.CacheExpirationTime)*time.Millisecond, v.CacheSize)
+		} else if "" != stTcpProxy.LimitObj {
+			util.InitCache(stTcpProxy.LimitObj+"."+v.Name, "", 0, 0)
 		}
-		for _, v := range stTcpProxy.App {
+		for _, v1 := range v.Server {
 			if common.SWITCH_ON == v.CacheSwitch {
-				util.InitCache(stTcpProxy.LimitObj+"."+v.Name, v.CacheExpirationCleanTime,
-					time.Duration(v.CacheExpirationTime)*time.Millisecond, v.CacheSize)
-			}
-			for _, v1 := range v.Server {
-				if common.SWITCH_ON == v.CacheSwitch {
-					util.InitCache(stTcpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.CacheExpirationCleanTime,
-						time.Duration(v1.CacheExpirationTime)*time.Millisecond, v1.CacheSize)
-				}
+				util.InitCache(stTcpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.CacheExpirationCleanTime,
+					time.Duration(v1.CacheExpirationTime)*time.Millisecond, v1.CacheSize)
+			} else if "" != stTcpProxy.LimitObj {
+				util.InitCache(stTcpProxy.LimitObj+"."+v.Name+"."+v1.Name, "", 0, 0)
 			}
 		}
 	}
@@ -159,26 +144,32 @@ func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
 	return
 }
 
-func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyConf) {
-	infoProtocol := session.codec.NewCodec(conn, stTcpProxyConf.Timeout, stTcpProxyConf.Heartbeat)
+func InitTcpProxy() (stTcpProxy *StTcpProxyConf, err error) {
+	//tcp连接配置读取
+	stTcpProxy = new(StTcpProxyConf)
+	return stTcpProxy, reloadConf(stTcpProxy)
+}
+
+func ProxyTcpHandle(session *Session) {
+	infoProtocol := session.codec.NewCodec(session.conn, session.stTcpProxyConf.Timeout, session.stTcpProxyConf.Heartbeat)
 	defer session.Close(infoProtocol)
-	if 0 != len(stTcpProxyConf.WhiteList) {
-		if !common.IpIsInlist(conn.RemoteAddr().String(), stTcpProxyConf.WhiteList) {
-			common.Errorf("addr not in WhiteList.%v", conn.RemoteAddr().String())
+	if 0 != len(session.stTcpProxyConf.WhiteList) {
+		if !common.IpIsInlist(session.conn.RemoteAddr().String(), session.stTcpProxyConf.WhiteList) {
+			common.Errorf("addr not in WhiteList.%v", session.conn.RemoteAddr().String())
 			return
 		}
-	} else if 0 != len(stTcpProxyConf.BlackList) && common.IpIsInlist(conn.RemoteAddr().String(), stTcpProxyConf.BlackList) {
-		common.Errorf("addr in BlackList.%v", conn.RemoteAddr().String())
+	} else if 0 != len(session.stTcpProxyConf.BlackList) && common.IpIsInlist(session.conn.RemoteAddr().String(), session.stTcpProxyConf.BlackList) {
+		common.Errorf("addr in BlackList.%v", session.conn.RemoteAddr().String())
 		return
 	}
 
-	if err := util.TcpConnLimitAdd(stTcpProxyConf.LimitObj, 1); nil != err {
+	if err := util.TcpConnLimitAdd(session.stTcpProxyConf.LimitObj, 1); nil != err {
 		common.Errorf("over connect limit.%v", err)
 		return
 	}
-	defer util.TcpConnLimitAdd(stTcpProxyConf.LimitObj, -1)
+	defer util.TcpConnLimitAdd(session.stTcpProxyConf.LimitObj, -1)
 	var wg sync.WaitGroup
-	infoTcpProxy := session.controller.TcpProxyGet(conn.RemoteAddr().String())
+	infoTcpProxy := session.controller.TcpProxyGet(session.conn.RemoteAddr().String())
 	ticker := time.NewTicker(time.Millisecond * 500)
 	wg.Add(1)
 	go func() {
@@ -196,7 +187,7 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 		}
 	}()
 
-	connId, _ := strconv.ParseInt(fmt.Sprintf("%d", &conn), 10, 64)
+	connId, _ := strconv.ParseInt(fmt.Sprintf("%d", &session.conn), 10, 64)
 	pHand := func(isFirstMsg *int, reqHead, reqBody interface{}) (limitObj string, err error) {
 		defer wg.Done()
 		tempLimitObj, reqHeadTemp, reqBodyTemp, tempErr := session.controller.HandlePre(infoTcpProxy, reqHead, reqBody)
@@ -205,7 +196,7 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 		}
 		limitObj = tempLimitObj
 
-		temp := fmt.Sprintf("%s.%s", stTcpProxyConf.LimitObj, limitObj)
+		temp := fmt.Sprintf("%s.%s", session.stTcpProxyConf.LimitObj, limitObj)
 		if 0 == *isFirstMsg {
 			if err = util.TcpConnLimitAdd(temp, 1); nil != err {
 				common.Warnf("over limit connect.%s", limitObj)
@@ -221,7 +212,7 @@ func ProxyTcpHandle(session *Session, conn net.Conn, stTcpProxyConf *StTcpProxyC
 		}
 
 		//达到限速阀值,直接丢弃消息
-		if "" != stTcpProxyConf.LimitObj {
+		if "" != session.stTcpProxyConf.LimitObj {
 			if err = util.RateAdd(temp, int64(len(msg)), connId); nil != err {
 				common.Warnf("More than the size of the max rate limit.%s.%d", temp, len(msg))
 				return

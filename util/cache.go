@@ -18,10 +18,20 @@ func init() {
 }
 
 func InitCache(obj, cacheExpirationCleanTime string, defaultExpiration time.Duration, maxCacheSize int64) {
-	_, ok := mapCache[obj]
+	if "" == obj {
+		common.Warnf("param error.obj=%s,cacheExpirationCleanTime=%s,defaultExpiration=%d,maxCacheSize=%d", obj, cacheExpirationCleanTime, defaultExpiration, maxCacheSize)
+		return
+	}
+	v, ok := mapCache[obj]
 	if ok {
-		common.Warnf("repeat cache obj.%v", obj)
+		common.Infof("update cache obj.%v", obj)
+		v.Reset(cacheExpirationCleanTime, defaultExpiration, maxCacheSize)
+
 	} else {
+		if 0 >= maxCacheSize {
+			common.Warnf("param error.obj=%s,cacheExpirationCleanTime=%s,defaultExpiration=%d,maxCacheSize=%d", obj, cacheExpirationCleanTime, defaultExpiration, maxCacheSize)
+			return
+		}
 		mapCache[obj] = cache.New(cacheExpirationCleanTime, defaultExpiration, maxCacheSize)
 	}
 

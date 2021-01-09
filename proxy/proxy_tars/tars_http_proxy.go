@@ -1,14 +1,15 @@
 package proxy_tars
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
-	"github.com/gofrs/flock"
 	"github.com/lwaly/tars_gateway/common"
 	"github.com/lwaly/tars_gateway/util"
 
@@ -37,13 +38,13 @@ type StHttpApp struct {
 	WhiteList []string       `json:"whiteList,omitempty"` //
 }
 
-type HttpControllerTars struct {
+type StTarsHttpProxy struct {
 	Secret             string      `json:"secret,omitempty"`
 	RouteType          int         `json:"routeType,omitempty"`
 	App                []StHttpApp `json:"app,omitempty"`
 	LimitObj           string      `json:"limitObj,omitempty"` //http对象
+	rwMutex            sync.RWMutex
 	mapHttpEndpoint    map[string]tars.EndpointManager
-	fileLock           *flock.Flock
 	mapSecret          map[string]string
 	RouteId            uint64
 	mapAppBlackList    map[string][]string
@@ -56,11 +57,13 @@ var pCallBackStruct interface{}
 var pCallResponseFunc func(p interface{}, rsp *http.Response) error
 var pCallRequestFunc func(p interface{}, w http.ResponseWriter, r *http.Request) (int, error)
 
-func (h *HttpControllerTars) ReloadConf() (err error) {
+func (h *StTarsHttpProxy) ReloadConf() (err error) {
 	if err = common.Conf.GetStruct("http", h); nil != err {
 		common.Errorf("fail to get app info")
 		return
 	}
+	h.rwMutex.Lock()
+	defer h.rwMutex.Unlock()
 	for _, value := range h.App {
 		for _, v := range value.Server {
 			if "" != v.Secret && "empty" != v.Secret {
@@ -105,10 +108,10 @@ func (h *HttpControllerTars) ReloadConf() (err error) {
 	return
 }
 
-func (h *HttpControllerTars) InitProxyHTTP(p interface{}, ResponseFunc func(p interface{}, rsp *http.Response) error,
+func (h *StTarsHttpProxy) InitProxyHTTP(p interface{}, ResponseFunc func(p interface{}, rsp *http.Response) error,
 	RequestFunc func(p interface{}, w http.ResponseWriter, r *http.Request) (int, error)) (err error) {
 	h.mapHttpEndpoint = make(map[string]tars.EndpointManager)
-	h.fileLock = flock.New("/var/lock/gateway-lock-http.lock")
+
 	h.mapSecret = make(map[string]string)
 	h.mapAppBlackList = make(map[string][]string)
 	h.mapServerBlackList = make(map[string][]string)
@@ -123,7 +126,7 @@ func (h *HttpControllerTars) InitProxyHTTP(p interface{}, ResponseFunc func(p in
 }
 
 //实现Handler的接口
-func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (err error) {
+func (h *StTarsHttpProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) (err error) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Token")
 	w.Header().Set("Access-Control-Allow-Methods", "POST")
@@ -140,23 +143,16 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 		return
 	}
 
-	appWhiteList, _ := h.mapAppWhiteList[a[1]]
-	serverWhiteList, _ := h.mapServerWhiteList[a[1]+"."+a[2]]
-	if 0 != len(appWhiteList) || 0 != len(serverWhiteList) {
-		if !common.IpIsInlist(r.RemoteAddr, appWhiteList) || !common.IpIsInlist(r.RemoteAddr, serverWhiteList) {
-			common.Errorf("addr not in WhiteList.%v", r.RemoteAddr)
-			return
-		}
-	} else {
-		appBlackList, _ := h.mapAppBlackList[a[1]]
-		serverBlackList, _ := h.mapServerBlackList[a[1]+"."+a[2]]
-		if common.IpIsInlist(r.RemoteAddr, appBlackList) || common.IpIsInlist(r.RemoteAddr, serverBlackList) {
-			common.Errorf("addr not in WhiteList.%v", r.RemoteAddr)
-			return
-		}
+	h.rwMutex.RLock()
+	if err = h.whiteBlackQuery(a, r); nil != err {
+		w.WriteHeader(http.StatusBadGateway)
+		h.rwMutex.RUnlock()
+		return
 	}
+
 	var uid uint64
 	secret, _ := h.mapSecret[a[1]+"."+a[2]]
+	h.rwMutex.RUnlock()
 	if "" != secret {
 		if 0 == strings.Compare(a[3], "Login") || 0 == strings.Compare(a[3], "Register") || 0 == strings.Compare(a[3], "Verify") {
 			common.Infof("user login")
@@ -181,7 +177,7 @@ func (h *HttpControllerTars) ServeHTTP(w http.ResponseWriter, r *http.Request) (
 				return
 			}
 		} else if common.ERR_LIMIT == code {
-			w.WriteHeader(502)
+			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
 	}
@@ -248,4 +244,25 @@ func ModifyResponse(rsp *http.Response) (err error) {
 	}
 
 	return nil
+}
+
+func (h *StTarsHttpProxy) whiteBlackQuery(a []string, r *http.Request) (err error) {
+	appWhiteList, _ := h.mapAppWhiteList[a[1]]
+	serverWhiteList, _ := h.mapServerWhiteList[a[1]+"."+a[2]]
+	if 0 != len(appWhiteList) || 0 != len(serverWhiteList) {
+		if !common.IpIsInlist(r.RemoteAddr, appWhiteList) || !common.IpIsInlist(r.RemoteAddr, serverWhiteList) {
+			common.Errorf("addr not in WhiteList.%v", r.RemoteAddr)
+			err = errors.New("it's not in whiteList")
+			return
+		}
+	} else {
+		appBlackList, _ := h.mapAppBlackList[a[1]]
+		serverBlackList, _ := h.mapServerBlackList[a[1]+"."+a[2]]
+		if common.IpIsInlist(r.RemoteAddr, appBlackList) || common.IpIsInlist(r.RemoteAddr, serverBlackList) {
+			common.Errorf("addr not in WhiteList.%v", r.RemoteAddr)
+			err = errors.New("it's in blackList")
+			return
+		}
+	}
+	return
 }

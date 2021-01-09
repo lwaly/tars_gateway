@@ -57,6 +57,21 @@ type cache struct {
 	cacheExpirationCleanTime string
 }
 
+func (c *cache) Reset(cacheExpirationCleanTime string, de time.Duration, maxCacheSize int64) {
+	c.cacheExpirationCleanTime = cacheExpirationCleanTime
+	c.defaultExpiration = de
+	c.cacheSize = maxCacheSize
+	c.janitor.stop <- true
+	if 0 >= maxCacheSize {
+		c.Flush()
+	} else {
+		C := &Cache{c}
+		runJanitor(c)
+		runtime.SetFinalizer(C, stopJanitor)
+	}
+	return
+}
+
 // Add an item to the cache, replacing any existing item. If the duration is 0
 // (DefaultExpiration), the cache's default expiration time is used. If it is -1
 // (NoExpiration), the item never expires.
