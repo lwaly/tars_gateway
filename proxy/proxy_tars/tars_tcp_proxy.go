@@ -339,8 +339,6 @@ func (info *stTarsTcpProxy) Handle(reqHead, reqBody interface{}) (msg []byte, er
 		return
 	}
 	var output Respond
-	var points []*endpoint.Endpoint
-	var manager tars.EndpointManager
 	var obj string
 	var cacheObj string
 	var reqBodyTemp MsgBody
@@ -349,7 +347,7 @@ func (info *stTarsTcpProxy) Handle(reqHead, reqBody interface{}) (msg []byte, er
 
 	if 0 == reqHeadOut.GetBodyLen() && CMD_HEART == reqHeadOut.GetServant() {
 		common.Infof("heart msg")
-		goto RET
+		return info.handleResponse(outBodyRsp, cacheObj, cacheKey, &reqHeadOut, &output)
 	}
 
 	obj, err = info.objFind(&reqHeadOut)
@@ -371,12 +369,54 @@ func (info *stTarsTcpProxy) Handle(reqHead, reqBody interface{}) (msg []byte, er
 		if util.CacheTcpObjExist(cacheObj) {
 			if cacheKey, outBodyRsp, err = cacheFind(cacheObj, &reqHeadOut, &reqBodyTemp); nil == err {
 				common.Infof("cache")
-				goto RET
+				return info.handleResponse(outBodyRsp, cacheObj, cacheKey, &reqHeadOut, &output)
 			}
 		} else {
 			cacheObj = ""
 		}
 	}
+
+	if err = info.handle(obj, &reqHeadOut, &reqBodyTemp, &output); nil != err {
+		common.Errorf("error handle:%v", err)
+	}
+	return info.handleResponse(outBodyRsp, cacheObj, cacheKey, &reqHeadOut, &output)
+}
+
+func (info *stTarsTcpProxy) handleResponse(outBodyRsp []byte, cacheObj string, cacheKey string, reqHeadOut *MsgHead, output *Respond) (msg []byte, err error) {
+	if nil == outBodyRsp {
+		if CMD_HEART != reqHeadOut.GetServant() {
+			outBodyRsp, err = proto.Marshal(output)
+			if err != nil {
+				common.Errorf("faile to Marshal msg.err: %v", err)
+				return
+			}
+			reqHeadOut.BodyLen = uint32(len(outBodyRsp))
+			if "" != cacheObj {
+				go cacheAdd(cacheObj, cacheKey, outBodyRsp)
+			}
+		} else {
+			reqHeadOut.BodyLen = 1 //实际无body，保证客户端消息头部44字节
+		}
+	} else {
+		reqHeadOut.BodyLen = uint32(len(outBodyRsp))
+	}
+
+	reqHeadOut.Servant++
+
+	msg, err = proto.Marshal(reqHeadOut)
+	if err != nil {
+		common.Errorf("faile to Marshal msg.err: %v", err)
+		return
+	}
+
+	msg = append(msg, outBodyRsp...)
+	return
+}
+
+func (info *stTarsTcpProxy) handle(obj string, reqHeadOut *MsgHead, reqBodyTemp *MsgBody, output *Respond) (err error) {
+	var ok bool
+	var points []*endpoint.Endpoint
+	var manager tars.EndpointManager
 
 	obj += "Obj"
 	manager, ok = info.outInfo.mapTcpEndpoint[obj]
@@ -417,52 +457,24 @@ func (info *stTarsTcpProxy) Handle(reqHead, reqBody interface{}) (msg []byte, er
 			}
 			input := Request{Version: reqHeadOut.GetVersion(), Servant: reqHeadOut.GetServant(),
 				Seq: reqHeadOut.GetSeq(), Uid: reqHeadOut.GetRouteId()}
-			if nil != reqBody {
+			if nil != reqBodyTemp {
 				input.Body = reqBodyTemp.GetBody()
 			}
-			output, err = appObj.Handle(input)
+			*output, err = appObj.Handle(input)
 			if err != nil {
 				common.Errorf("err: %v reqBody=%s extend=%s", err, string(output.GetBody()[:]), string(output.GetExtend()[:]))
-				b, errTemp := proto.Marshal(&ErrorRsp{Errinfo: &Errorinfo{ErrorCode: common.ERR_UNKNOWN, ErrorInfo: []byte(common.ErrUnknown)}})
-				if errTemp != nil {
-					common.Errorf("faile to Marshal msg.err: %v", errTemp)
+				var b []byte
+				b, err = proto.Marshal(&ErrorRsp{Errinfo: &Errorinfo{ErrorCode: common.ERR_UNKNOWN, ErrorInfo: []byte(common.ErrUnknown)}})
+				if err != nil {
+					common.Errorf("faile to Marshal msg.err: %v", err)
 					return
 				}
 				output.Body = b
-				goto RET
-			}
-			info.verify(&output)
-		}
-	}
-
-RET:
-	if nil == outBodyRsp {
-		if CMD_HEART != reqHeadOut.GetServant() {
-			outBodyRsp, err = proto.Marshal(&output)
-			if err != nil {
-				common.Errorf("faile to Marshal msg.err: %v", err)
 				return
 			}
-			reqHeadOut.BodyLen = uint32(len(outBodyRsp))
-			if "" != cacheObj {
-				go cacheAdd(cacheObj, cacheKey, outBodyRsp)
-			}
-		} else {
-			reqHeadOut.BodyLen = 1 //实际无body，保证客户端消息头部44字节
+			info.verify(output)
 		}
-	} else {
-		reqHeadOut.BodyLen = uint32(len(outBodyRsp))
 	}
-
-	reqHeadOut.Servant++
-
-	msg, err = proto.Marshal(&reqHeadOut)
-	if err != nil {
-		common.Errorf("faile to Marshal msg.err: %v", err)
-		return
-	}
-
-	msg = append(msg, outBodyRsp...)
 
 	return
 }

@@ -149,26 +149,12 @@ func (h *StTarsHttpProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) (err
 		h.rwMutex.RUnlock()
 		return
 	}
-
-	var uid uint64
-	secret, _ := h.mapSecret[a[1]+"."+a[2]]
 	h.rwMutex.RUnlock()
-	if "" != secret {
-		if 0 == strings.Compare(a[3], "Login") || 0 == strings.Compare(a[3], "Register") || 0 == strings.Compare(a[3], "Verify") {
-			common.Infof("user login")
-			uid = 1
-		} else {
-			token := r.Header.Get("Token")
-			claims, err := util.TokenAuth(token, secret)
-			if err != nil {
-				common.Errorf("authentication token fail.%v.%v", token, err)
-				w.Write(common.NewErrorInfo(common.ERR_NO_USER, common.ErrNoUser))
-				return err
-			}
-			uid = claims.Uid
-		}
-	}
 
+	//verify Token
+	if err = h.verifyToken(a, w, r); nil != err {
+		return
+	}
 	//query cache
 	if nil != pCallRequestFunc {
 		if code, errTemp := pCallRequestFunc(pCallBackStruct, w, r); common.OK == code && nil != errTemp {
@@ -182,9 +168,30 @@ func (h *StTarsHttpProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) (err
 		}
 	}
 
-	obj := fmt.Sprintf("%s.%s.%sObj", a[1], a[2], a[2])
-	common.Infof("init EndpointManager.%s %s,uid=%d", r.URL.Path, obj, uid)
+	return h.serveHTTP(a, w, r)
+}
 
+func (h *StTarsHttpProxy) verifyToken(a []string, w http.ResponseWriter, r *http.Request) (err error) {
+	secret, _ := h.mapSecret[a[1]+"."+a[2]]
+	if "" != secret {
+		if 0 == strings.Compare(a[3], "Login") || 0 == strings.Compare(a[3], "Register") || 0 == strings.Compare(a[3], "Verify") {
+			common.Infof("user login")
+		} else {
+			token := r.Header.Get("Token")
+			_, err := util.TokenAuth(token, secret)
+			if err != nil {
+				common.Errorf("authentication token fail.%v.%v", token, err)
+				w.Write(common.NewErrorInfo(common.ERR_NO_USER, common.ErrNoUser))
+				return err
+			}
+		}
+	}
+
+	return
+}
+
+func (h *StTarsHttpProxy) serveHTTP(a []string, w http.ResponseWriter, r *http.Request) (err error) {
+	obj := fmt.Sprintf("%s.%s.%sObj", a[1], a[2], a[2])
 	manager, ok := h.mapHttpEndpoint[obj]
 	if !ok {
 		manager = tars.GetManager(comm, obj)
