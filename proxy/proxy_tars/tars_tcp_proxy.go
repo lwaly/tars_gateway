@@ -27,46 +27,14 @@ const (
 
 var (
 	mapUser syncmap.Map
-	comm    *tars.Communicator
 )
 
-type StTcpServer struct {
-	Id        uint32   `json:"id,omitempty"`
-	Name      string   `json:"name,omitempty"`
-	RouteType int      `json:"routeType,omitempty"`
-	Switch    uint32   `json:"switch,omitempty"`    //1开启服务
-	BlackList []string `json:"blackList,omitempty"` //
-	WhiteList []string `json:"whiteList,omitempty"` //
-}
-
-type StTcpApp struct {
-	Id        uint32        `json:"id,omitempty"`
-	Name      string        `json:"name,omitempty"`
-	Server    []StTcpServer `json:"server,omitempty"`
-	Secret    string        `json:"secret,omitempty"`
-	RouteType int           `json:"routeType,omitempty"`
-	Switch    uint32        `json:"switch,omitempty"`    //1开启服务
-	BlackList []string      `json:"blackList,omitempty"` //
-	WhiteList []string      `json:"whiteList,omitempty"` //
-}
-
 type StTarsTcpProxy struct {
-	userCount          int64
-	iSign              uint64
-	mapApp             map[uint32]string
-	mapServer          map[string]map[uint32]string
-	mapAppBlackList    map[uint32][]string
-	mapServerBlackList map[uint32]map[uint32][]string
-	mapAppWhiteList    map[uint32][]string
-	mapServerWhiteList map[uint32]map[uint32][]string
-	mapSecret          map[uint32]string
-	mapTcpEndpoint     map[string]tars.EndpointManager
-	rwMutex            sync.RWMutex
-	Secret             string     `json:"secret,omitempty"`
-	RouteType          int        `json:"routeType,omitempty"`
-	App                []StTcpApp `json:"app,omitempty"`
-	LimitObj           string     `json:"limitObj,omitempty"`
-	RouteId            uint64
+	*StTarsProxyTcpCommon
+	userCount int64
+	iSign     uint64
+	rwMutex   sync.RWMutex
+	RouteId   uint64
 }
 
 type stTarsTcpProxy struct {
@@ -82,126 +50,17 @@ type stTarsTcpProxy struct {
 }
 
 func (outInfo *StTarsTcpProxy) ReloadConf() (err error) {
-	if err = common.Conf.GetStruct("tcp", outInfo); nil != err {
-		common.Errorf("fail to get app info")
-		return
-	}
 	outInfo.rwMutex.Lock()
 	defer outInfo.rwMutex.Unlock()
-	mapTemp := make(map[uint32]string)
-	for _, value := range outInfo.App {
-		_, ok := mapTemp[value.Id]
-		if ok {
-			common.Errorf("repeat app.%v", value)
-			continue
-		} else {
-			mapTemp[value.Id] = value.Name
-		}
-
-		_, ok = outInfo.mapApp[value.Id]
-		if !ok {
-			outInfo.mapApp[value.Id] = value.Name
-		}
-
-		mTemp := make(map[uint32]string)
-		for _, v := range value.Server {
-			_, ok := mTemp[v.Id]
-			if ok {
-				common.Errorf("repeat serverId.%v", v)
-				continue
-			}
-			mTemp[v.Id] = v.Name
-		}
-
-		outInfo.mapServer[value.Name] = mTemp
-	}
-
-	for _, value := range outInfo.App {
-		if "" != value.Secret && "empty" != value.Secret {
-			outInfo.mapSecret[value.Id] = value.Secret
-		} else if "" != outInfo.Secret && "empty" != outInfo.Secret {
-			outInfo.mapSecret[value.Id] = outInfo.Secret
-		} else {
-			outInfo.mapSecret[value.Id] = ""
-		}
-	}
-
-	for _, value := range outInfo.App {
-		_, ok := outInfo.mapAppWhiteList[value.Id]
-		if !ok {
-			outInfo.mapAppWhiteList[value.Id] = value.WhiteList
-		}
-
-		mTemp := make(map[uint32][]string)
-		for _, v := range value.Server {
-			_, ok := mTemp[v.Id]
-			if ok {
-				common.Errorf("repeat serverId.%v", v)
-				continue
-			}
-			mTemp[v.Id] = v.WhiteList
-		}
-
-		outInfo.mapServerWhiteList[value.Id] = mTemp
-	}
-
-	for _, value := range outInfo.App {
-		_, ok := outInfo.mapAppBlackList[value.Id]
-		if !ok {
-			outInfo.mapAppBlackList[value.Id] = value.BlackList
-		}
-
-		mTemp := make(map[uint32][]string)
-		for _, v := range value.Server {
-			_, ok := mTemp[v.Id]
-			if ok {
-				common.Errorf("repeat serverId.%v", v)
-				continue
-			}
-			mTemp[v.Id] = v.BlackList
-		}
-
-		outInfo.mapServerBlackList[value.Id] = mTemp
-	}
-
+	outInfo.StTarsProxyTcpCommon.reloadConf()
 	return
 }
 
-func (outInfo *StTarsTcpProxy) InitProxy() (err error) {
-	outInfo.mapTcpEndpoint = make(map[string]tars.EndpointManager)
-
-	outInfo.mapApp = make(map[uint32]string)
-	outInfo.mapServer = make(map[string]map[uint32]string)
-	outInfo.mapSecret = make(map[uint32]string)
-	outInfo.mapAppBlackList = make(map[uint32][]string)
-	outInfo.mapServerBlackList = make(map[uint32]map[uint32][]string)
-	outInfo.mapAppWhiteList = make(map[uint32][]string)
-	outInfo.mapServerWhiteList = make(map[uint32]map[uint32][]string)
-
+func (outInfo *StTarsTcpProxy) InitProxy(key string) (err error) {
+	outInfo.StTarsProxyTcpCommon = new(StTarsProxyTcpCommon)
+	outInfo.StTarsProxyTcpCommon.InitProxy(key)
 	mapUser.Store(uint64(0), &stTarsTcpProxy{reader: make(chan []byte)})
-
-	err = common.Conf.GetStruct("tars", outInfo)
-	if err != nil {
-		common.Errorf("fail to get tcp conf.%v", err)
-		return
-	}
-
-	type StTarsAddr struct {
-		Ip   string `json:"ip,omitempty"`
-		Port int    `json:"port,omitempty"`
-	}
-	stTarsAddr := StTarsAddr{}
-	err = common.Conf.GetStruct("tars", &stTarsAddr)
-	if err != nil {
-		common.Errorf("fail to get tcp conf.%v", err)
-		return
-	}
-	addr := fmt.Sprintf("tars.tarsregistry.QueryObj@tcp -h %s -p %d -t 10000", stTarsAddr.Ip, stTarsAddr.Port)
-	comm = tars.NewCommunicator()
-	comm.SetLocator(addr)
-
 	util.InitQueue(util.HandlerQueueFunc(HandleQueue))
-
 	outInfo.ReloadConf()
 	return
 }
@@ -419,10 +278,10 @@ func (info *stTarsTcpProxy) handle(obj string, reqHeadOut *MsgHead, reqBodyTemp 
 	var manager tars.EndpointManager
 
 	obj += "Obj"
-	manager, ok = info.outInfo.mapTcpEndpoint[obj]
+	manager, ok = info.outInfo.mapEndpoint[obj]
 	if !ok {
 		manager = tars.GetManager(comm, obj)
-		info.outInfo.mapTcpEndpoint[obj] = manager
+		info.outInfo.mapEndpoint[obj] = manager
 		common.Infof("new EndpointManager.")
 	}
 

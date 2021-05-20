@@ -12,18 +12,18 @@ import (
 )
 
 type ReflectServer struct {
-	listener       net.Listener
-	protocol       protocol.Protocol //数据收发
-	handler        Handler
-	controller     Controller //业务处理
-	stTcpProxyConf *StTcpProxyConf
+	listener    net.Listener
+	protocol    protocol.Protocol //数据收发
+	handler     Handler
+	controller  Controller //业务处理
+	stProxyConf *StProxyConf
 }
 
 func (server *ReflectServer) Serve() (err error) {
-	common.Infof("start tcp server.addr=%s", server.stTcpProxyConf.Addr)
+	common.Infof("start tcp server.addr=%s", server.stProxyConf.Addr)
 
-	if err = server.controller.InitProxy(); nil != err {
-		common.Errorf("fail init tcp server.addr=%s", server.stTcpProxyConf.Addr)
+	if err = server.controller.InitProxy(server.stProxyConf.key); nil != err {
+		common.Errorf("fail init tcp server.addr=%s", server.stProxyConf.Addr)
 		return
 	}
 	server.reloadConf()
@@ -50,7 +50,7 @@ func (server *ReflectServer) reloadConf() {
 				if confLastUpdateTime < common.Conf.LastUpdateTimeGet() {
 					common.Infof("config update")
 					confLastUpdateTime = common.Conf.LastUpdateTimeGet()
-					reloadConf(server.stTcpProxyConf)
+					server.stProxyConf.reloadConf()
 					server.controller.ReloadConf()
 				}
 			}
@@ -65,7 +65,7 @@ func (server *ReflectServer) Listener() net.Listener {
 }
 
 func (server *ReflectServer) handleConnection(conn net.Conn) {
-	if session := NewSession(server.protocol, server.controller, conn, server.stTcpProxyConf); nil != session {
+	if session := NewSession(server.protocol, server.controller, conn, server.stProxyConf); nil != session {
 		server.handler.HandleSession(session)
 	} else {
 		common.Errorf("fail to create session.")
@@ -77,22 +77,22 @@ func (server *ReflectServer) Stop() {
 	server.listener.Close()
 }
 
-func Run(network string, stTcpProxyConf *StTcpProxyConf, protocol protocol.Protocol, controller Controller) (err error) {
-	if nil == controller || nil == stTcpProxyConf {
-		return errors.New("Controller or stTcpProxyConf is nil")
+func Run(network string, stProxyConf *StProxyConf, protocol protocol.Protocol, controller Controller) (err error) {
+	if nil == controller || nil == stProxyConf {
+		return errors.New("Controller or stProxyConf is nil")
 	}
 
-	listener, err := net.Listen(network, stTcpProxyConf.Addr)
+	listener, err := net.Listen(network, stProxyConf.Addr)
 	if err != nil {
 		return err
 	}
 
 	server := &ReflectServer{
-		listener:       listener,
-		protocol:       protocol,
-		handler:        HandlerFunc(ProxyTcpHandle),
-		controller:     controller,
-		stTcpProxyConf: stTcpProxyConf,
+		listener:    listener,
+		protocol:    protocol,
+		handler:     HandlerFunc(ProxyTcpHandle),
+		controller:  controller,
+		stProxyConf: stProxyConf,
 	}
 
 	return server.Serve()

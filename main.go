@@ -14,6 +14,7 @@ import (
 func main() {
 	var strConfPath string
 	flag.StringVar(&strConfPath, "c", "./conf/conf", "The gateway config path")
+	flag.Parse()
 	if err := common.NewConf(strConfPath); nil != err {
 		fmt.Println(err)
 		fmt.Println(`
@@ -27,13 +28,13 @@ func main() {
 
 	proxy.InitProxy()
 
-	stHttpProxy, err := proxy.InitHttpProxy()
+	stHttpProxy, err := proxy.InitHttpProxy("http")
 	if nil != err {
 		common.Errorf("fail to get tcp conf.%v", err)
 		return
 	}
 
-	stTcpProxy, err := proxy.InitTcpProxy()
+	stTcpProxy, err := proxy.InitTcpProxy("tcp")
 	if nil != err {
 		common.Errorf("fail to get tcp conf.%v", err)
 		return

@@ -14,142 +14,29 @@ import (
 	"github.com/lwaly/tars_gateway/util"
 )
 
-type StHttpProxyConf struct {
-	Addr                     string          `json:"addr,omitempty"`            //监听地址
-	LimitObj                 string          `json:"limitObj,omitempty"`        //http对象
-	Switch                   uint32          `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch          uint32          `json:"rateLimitSwitch,omitempty"` //1开启服务
-	MaxConn                  int64           `json:"maxConn,omitempty"`         //最大连接数
-	MaxRate                  int64           `json:"maxRate,omitempty"`         //最大接收字节数
-	MaxRatePer               int64           `json:"maxRatePer,omitempty"`      //每个连接最大接收字节数
-	ConnCount                int64           `json:"connCount,omitempty"`       //已连接数
-	RateCount                int64           `json:"rateCount,omitempty"`       //已接收字节数
-	RatePerCount             int64           `json:"ratePerCount,omitempty"`    //每个连接已接收字节数
-	Per                      int64           `json:"per,omitempty"`             //限速统计间隔
-	App                      []StHttpAppConf `json:"app,omitempty"`             //限速统计间隔
-	BlackList                []string        `json:"blackList,omitempty"`       //
-	WhiteList                []string        `json:"whiteList,omitempty"`       //
-	CacheSwitch              int64           `json:"cacheSwitch,omitempty"`
-	CacheSize                int64           `json:"cacheSize,omitempty"`
-	CacheExpirationTime      int64           `json:"cacheExpirationTime,omitempty"`
-	CacheExpirationCleanTime string          `json:"cacheExpirationCleanTime,omitempty"`
-}
-
-type StHttpAppConf struct {
-	Switch                   uint32                `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch          uint32                `json:"rateLimitSwitch,omitempty"` //1开启服务
-	Name                     string                `json:"name,omitempty"`
-	MaxConn                  int64                 `json:"maxConn,omitempty"`      //最大连接数
-	MaxRate                  int64                 `json:"maxRate,omitempty"`      //最大接收字节数
-	MaxRatePer               int64                 `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
-	ConnCount                int64                 `json:"connCount,omitempty"`    //已连接数
-	RateCount                int64                 `json:"rateCount,omitempty"`    //已接收字节数
-	RatePerCount             int64                 `json:"ratePerCount,omitempty"` //每个连接已接收字节数
-	Per                      int64                 `json:"per,omitempty"`          //限速统计间隔
-	Server                   []StHttpAppServerConf `json:"server,omitempty"`       //限速统计间隔
-	BlackList                []string              `json:"blackList,omitempty"`    //
-	WhiteList                []string              `json:"whiteList,omitempty"`    //
-	CacheSwitch              int64                 `json:"cacheSwitch,omitempty"`
-	CacheSize                int64                 `json:"cacheSize,omitempty"`
-	CacheExpirationTime      int64                 `json:"cacheExpirationTime,omitempty"`
-	CacheExpirationCleanTime string                `json:"cacheExpirationCleanTime,omitempty"`
-}
-
-type StHttpAppServerConf struct {
-	Switch                   uint32   `json:"switch,omitempty"`          //1开启服务
-	RateLimitSwitch          uint32   `json:"rateLimitSwitch,omitempty"` //1开启服务
-	Name                     string   `json:"name,omitempty"`
-	MaxConn                  int64    `json:"maxConn,omitempty"`      //最大连接数
-	MaxRate                  int64    `json:"maxRate,omitempty"`      //最大接收字节数
-	MaxRatePer               int64    `json:"maxRatePer,omitempty"`   //每个连接最大接收字节数
-	ConnCount                int64    `json:"connCount,omitempty"`    //已连接数
-	RateCount                int64    `json:"rateCount,omitempty"`    //已接收字节数
-	RatePerCount             int64    `json:"ratePerCount,omitempty"` //每个连接已接收字节数
-	Per                      int64    `json:"per,omitempty"`          //限速统计间隔
-	BlackList                []string `json:"blackList,omitempty"`    //
-	WhiteList                []string `json:"whiteList,omitempty"`    //
-	CacheSwitch              int64    `json:"cacheSwitch,omitempty"`
-	CacheSize                int64    `json:"cacheSize,omitempty"`
-	CacheExpirationTime      int64    `json:"cacheExpirationTime,omitempty"`
-	CacheExpirationCleanTime string   `json:"cacheExpirationCleanTime,omitempty"`
-}
-
 type HttpController interface {
 	ReloadConf() (err error)
-	InitProxyHTTP(p interface{}, ResponseFunc func(p interface{}, rsp *http.Response) error,
+	InitProxyHTTP(key string, p interface{}, ResponseFunc func(p interface{}, rsp *http.Response) error,
 		RequestFunc func(p interface{}, w http.ResponseWriter, r *http.Request) (int, error)) (err error)
 	ServeHTTP(w http.ResponseWriter, r *http.Request) (err error)
 }
 
 type StHttpController struct {
-	controller  HttpController
-	stHttpProxy *StHttpProxyConf
+	controller HttpController
+	proxyConf  *StProxyConf
 }
 
-func reloadHttpConf(stHttpProxy *StHttpProxyConf) (err error) {
-	err = common.Conf.GetStruct("http", stHttpProxy)
-	if err != nil {
-		common.Errorf("fail to get http conf.%v", err)
-		return
-	}
-
-	if common.SWITCH_ON == stHttpProxy.RateLimitSwitch {
-		util.RateLimitInit(stHttpProxy.LimitObj, stHttpProxy.MaxRate, stHttpProxy.MaxRatePer, stHttpProxy.MaxConn, stHttpProxy.Per)
-	} else if "" != stHttpProxy.LimitObj {
-		util.RateLimitInit(stHttpProxy.LimitObj, 0, 0, 0, 0)
-	}
-	for _, v := range stHttpProxy.App {
-		if common.SWITCH_ON == v.RateLimitSwitch {
-			util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name, v.MaxRate, v.MaxRatePer, v.MaxConn, v.Per)
-		} else if "" != stHttpProxy.LimitObj {
-			util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name, 0, 0, 0, 0)
-		}
-		for _, v1 := range v.Server {
-			if common.SWITCH_ON == v.RateLimitSwitch {
-				util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.MaxRate, v1.MaxRatePer, v1.MaxConn, v1.Per)
-			} else if "" != stHttpProxy.LimitObj {
-				util.RateLimitInit(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, 0, 0, 0, 0)
-			}
-		}
-	}
-
-	if common.SWITCH_ON == stHttpProxy.CacheSwitch {
-		util.InitCache(stHttpProxy.LimitObj, stHttpProxy.CacheExpirationCleanTime,
-			time.Duration(stHttpProxy.CacheExpirationTime)*time.Millisecond, stHttpProxy.CacheSize)
-	} else if "" != stHttpProxy.LimitObj {
-		util.InitCache(stHttpProxy.LimitObj, "", 0, 0)
-	}
-	for _, v := range stHttpProxy.App {
-		if common.SWITCH_ON == v.CacheSwitch {
-			util.InitCache(stHttpProxy.LimitObj+"."+v.Name, v.CacheExpirationCleanTime,
-				time.Duration(v.CacheExpirationTime)*time.Millisecond, v.CacheSize)
-		} else if "" != stHttpProxy.LimitObj {
-			util.InitCache(stHttpProxy.LimitObj+"."+v.Name, "", 0, 0)
-		}
-		for _, v1 := range v.Server {
-			if common.SWITCH_ON == v.CacheSwitch {
-				util.InitCache(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, v1.CacheExpirationCleanTime,
-					time.Duration(v1.CacheExpirationTime)*time.Millisecond, v1.CacheSize)
-			} else if "" != stHttpProxy.LimitObj {
-				util.InitCache(stHttpProxy.LimitObj+"."+v.Name+"."+v1.Name, "", 0, 0)
-			}
-		}
-	}
-
-	return
+func InitHttpProxy(key string) (proxyConf *StProxyConf, err error) {
+	proxyConf = new(StProxyConf)
+	proxyConf.key = key
+	return proxyConf, proxyConf.reloadConf()
 }
 
-func InitHttpProxy() (stHttpProxy *StHttpProxyConf, err error) {
-	stHttpProxy = new(StHttpProxyConf)
-	return stHttpProxy, reloadHttpConf(stHttpProxy)
-}
-
-func StartHttpProxy(stHttpProxy *StHttpProxyConf, h HttpController) (err error) {
+func StartHttpProxy(proxyConf *StProxyConf, h HttpController) (err error) {
 	//监听端口
-
-	controller := &StHttpController{stHttpProxy: stHttpProxy, controller: h}
-	controller.controller.InitProxyHTTP(stHttpProxy, ModifyResponse, ModifyRequest)
-	err = http.ListenAndServe(stHttpProxy.Addr, controller)
+	controller := &StHttpController{proxyConf: proxyConf, controller: h}
+	controller.controller.InitProxyHTTP(proxyConf.key, proxyConf, ModifyResponse, ModifyRequest)
+	err = http.ListenAndServe(proxyConf.Addr, controller)
 
 	if err != nil {
 		common.Errorf("ListenAndServe:%s ", err.Error())
@@ -164,7 +51,7 @@ func StartHttpProxy(stHttpProxy *StHttpProxyConf, h HttpController) (err error) 
 			case <-ticker.C:
 				if confLastUpdateTime < common.Conf.LastUpdateTimeGet() {
 					confLastUpdateTime = common.Conf.LastUpdateTimeGet()
-					reloadHttpConf(stHttpProxy)
+					proxyConf.reloadConf()
 					controller.controller.ReloadConf()
 				}
 			}
@@ -176,28 +63,28 @@ func StartHttpProxy(stHttpProxy *StHttpProxyConf, h HttpController) (err error) 
 
 //实现Handler的接口
 func (h *StHttpController) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if 0 != len(h.stHttpProxy.WhiteList) {
-		if !common.IpIsInlist(r.RemoteAddr, h.stHttpProxy.WhiteList) {
+	if 0 != len(h.proxyConf.WhiteList) {
+		if !common.IpIsInlist(r.RemoteAddr, h.proxyConf.WhiteList) {
 			common.Errorf("addr not in WhiteList.%v", r.RemoteAddr)
 			return
 		}
-	} else if 0 != len(h.stHttpProxy.BlackList) && common.IpIsInlist(r.RemoteAddr, h.stHttpProxy.BlackList) {
+	} else if 0 != len(h.proxyConf.BlackList) && common.IpIsInlist(r.RemoteAddr, h.proxyConf.BlackList) {
 		common.Errorf("addr in BlackList.%v", r.RemoteAddr)
 		return
 	}
 
-	if err := util.HttpConnLimitAdd(h.stHttpProxy.LimitObj+r.URL.Path, 1); nil != err {
+	if err := util.HttpConnLimitAdd(h.proxyConf.LimitObj+r.URL.Path, 1); nil != err {
 		common.Errorf("over connect limit.%v", err)
 		return
 	}
-	defer util.HttpConnLimitAdd(h.stHttpProxy.LimitObj+r.URL.Path, -1)
+	defer util.HttpConnLimitAdd(h.proxyConf.LimitObj+r.URL.Path, -1)
 
 	h.controller.ServeHTTP(w, r)
 }
 
 func ModifyResponse(p interface{}, rsp *http.Response) (err error) {
-	stHttpProxy := p.(*StHttpProxyConf)
-	if nil != stHttpProxy {
+	proxyConf := p.(*StProxyConf)
+	if nil != proxyConf {
 		//计算是否可缓存，然后在最终得到限速的结果返回，限速不代表不能缓存
 		cacheObj := rsp.Request.Header.Get("TARS_CACHE_OBJ")
 		cacheKey := rsp.Request.Header.Get("TARS_CACHE_KEY")
@@ -220,7 +107,7 @@ func ModifyResponse(p interface{}, rsp *http.Response) (err error) {
 			}
 		}
 
-		temp := fmt.Sprintf("%s%s", stHttpProxy.LimitObj, rsp.Request.URL.Path)
+		temp := fmt.Sprintf("%s%s", proxyConf.LimitObj, rsp.Request.URL.Path)
 
 		if err = util.RateHttpAdd(temp, rsp, 0); nil != err {
 			common.Warnf("More than the size of the max rate limit.%s", temp)
@@ -232,10 +119,10 @@ func ModifyResponse(p interface{}, rsp *http.Response) (err error) {
 }
 
 func ModifyRequest(p interface{}, w http.ResponseWriter, r *http.Request) (code int, err error) {
-	stHttpProxy := p.(*StHttpProxyConf)
+	proxyConf := p.(*StProxyConf)
 
-	if nil != stHttpProxy {
-		cacheObj := fmt.Sprintf("%s%s", stHttpProxy.LimitObj, r.URL.Path)
+	if nil != proxyConf {
+		cacheObj := fmt.Sprintf("%s%s", proxyConf.LimitObj, r.URL.Path)
 
 		//查询cache
 		if "1" == r.Header.Get("TARS_CACHE") && util.CacheHttpObjExist(cacheObj) {
@@ -253,7 +140,7 @@ func ModifyRequest(p interface{}, w http.ResponseWriter, r *http.Request) (code 
 					if err, v := util.CacheHttpBodyGet(cacheObj, cacheKeyBody); nil == err {
 						body, okbody := v.([]byte)
 						if okbody {
-							temp := fmt.Sprintf("%s%s", stHttpProxy.LimitObj, r.URL.Path)
+							temp := fmt.Sprintf("%s%s", proxyConf.LimitObj, r.URL.Path)
 
 							if err = util.RateHttpAdd(temp, nil, n+int64(len(body))); nil != err {
 								common.Warnf("More than the size of the max rate limit.%s", temp)

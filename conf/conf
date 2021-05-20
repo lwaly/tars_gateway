@@ -46,6 +46,53 @@
             }]
         }]
     },
+    "websocket": {
+        "switch": 1,
+        "addr": "192.168.89.13:8080",
+        "timeout": 1000,
+        "heartbeat": 45000,
+        "rateLimitSwitch": 1,
+        "maxConn": 1,
+        "maxRate": 100,
+        "maxRatePer": 100,
+        "per": 1000,
+        "limitObj": "tars_tcp",
+        "secret": "test",
+        "routeType": 1,
+        "whiteList":[],
+        "blackList":[],
+        "cacheSwitch": 1,
+        "cacheSize": 1,
+        "cacheExpirationTime": 1,
+        "cacheExpirationCleanTime": "0 0 1 * * ?",
+        "app": [{
+            "id": 1,
+            "name": "test",
+            "rateLimitSwitch": 1,
+            "maxConn": 1,
+            "maxRate": 100,
+            "maxRatePer": 100,
+            "per": 1000,
+            "secret": "test",
+            "routeType": 1,
+            "switch": 1,
+            "whiteList":[],
+            "blackList":[],
+            "server": [{
+                "id": 1,
+                "name": "test",
+                "rateLimitSwitch": 1,
+                "maxConn": 1,
+                "maxRate": 100,
+                "maxRatePer": 100,
+                "per": 1000,
+                "routeType": 1
+                "switch": 1,
+                "whiteList":[],
+                "blackList":[]
+            }]
+        }]
+    },
     "http": {
         "switch": 1,
         "addr": "192.168.89.177:18080",
