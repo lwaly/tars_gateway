@@ -22,6 +22,7 @@
             "id": 1,
             "name": "test",
             "rateLimitSwitch": 1,
+            "gatewayObject":"tars_gateway",
             "maxConn": 1,
             "maxRate": 100,
             "maxRatePer": 100,
@@ -150,7 +151,6 @@
         "groupObject": "gateway gateway",
         "durable": "gateway",
         "startWay": "deliverLast",
-        "gatewayObject": "gateway",
         "machine": 1
     }
 }

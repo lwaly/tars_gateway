@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/lwaly/tars_gateway/common"
+	"github.com/lwaly/tars_gateway/util"
 )
 
 var secret = ""
@@ -51,4 +52,5 @@ func InitProxy() {
 	}
 
 	common.LevelSet(stLogConf.Level)
+	util.InitQueue()
 }

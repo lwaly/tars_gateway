@@ -60,7 +60,7 @@ func (outInfo *StTarsTcpProxy) InitProxy(key string) (err error) {
 	outInfo.StTarsProxyTcpCommon = new(StTarsProxyTcpCommon)
 	outInfo.StTarsProxyTcpCommon.InitProxy(key)
 	mapUser.Store(uint64(0), &stTarsTcpProxy{reader: make(chan []byte)})
-	util.InitQueue(util.HandlerQueueFunc(HandleQueue))
+	util.QueueAddHandle(uint32(ECmd_E_LOGIN_NOTIFY_REQ), util.HandlerQueueFunc(HandleQueue))
 	outInfo.ReloadConf()
 	return
 }
@@ -226,7 +226,7 @@ func (info *stTarsTcpProxy) Handle(reqHead, reqBody interface{}) (msg []byte, er
 	if 1 == reqHeadOut.GetCacheIs() {
 		cacheObj = info.outInfo.LimitObj + "." + obj
 		if util.CacheTcpObjExist(cacheObj) {
-			if cacheKey, outBodyRsp, err = cacheFind(cacheObj, &reqHeadOut, &reqBodyTemp); nil == err {
+			if cacheKey, outBodyRsp, err = info.cacheFind(cacheObj, &reqHeadOut, &reqBodyTemp); nil == err {
 				common.Infof("cache")
 				return info.handleResponse(outBodyRsp, cacheObj, cacheKey, &reqHeadOut, &output)
 			}
@@ -251,7 +251,7 @@ func (info *stTarsTcpProxy) handleResponse(outBodyRsp []byte, cacheObj string, c
 			}
 			reqHeadOut.BodyLen = uint32(len(outBodyRsp))
 			if "" != cacheObj {
-				go cacheAdd(cacheObj, cacheKey, outBodyRsp)
+				go info.cacheAdd(cacheObj, cacheKey, outBodyRsp)
 			}
 		} else {
 			reqHeadOut.BodyLen = 1 //实际无body，保证客户端消息头部44字节
@@ -331,7 +331,7 @@ func (info *stTarsTcpProxy) handle(obj string, reqHeadOut *MsgHead, reqBodyTemp 
 				output.Body = b
 				return
 			}
-			info.verify(output)
+			info.verify(reqHeadOut.GetApp(), output)
 		}
 	}
 
@@ -346,7 +346,7 @@ func (info *stTarsTcpProxy) IsExit() int {
 	return info.isExit
 }
 
-func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
+func (info *stTarsTcpProxy) verify(app uint32, output *Respond) (err error) {
 	//扩展字段有值，认为是客户端重新认证，更换秘钥
 	if 0 != len(output.GetExtend()) && "" != info.Secret {
 		if claims, err := util.TokenAuth(string(output.GetExtend()), info.Secret); nil != err {
@@ -384,7 +384,7 @@ func (info *stTarsTcpProxy) verify(output *Respond) (err error) {
 					atomic.AddInt64(&info.outInfo.userCount, 1)
 					common.Infof("add connect.uid=%d,userCount=%d.%v", info.uid, info.outInfo.userCount, info)
 				}
-				userLoginNotify(info.uid)
+				info.userLoginNotify(app, info.uid)
 			}
 		}
 
@@ -518,17 +518,19 @@ func HandleQueue(b []byte) {
 	return
 }
 
-func userLoginNotify(uid uint64) {
-	info := LoginNotifyReq{Uid: uid}
-	b, err := proto.Marshal(&info)
-	if err != nil {
-		common.Errorf("faile to Marshal msg.err: %v", err)
-		return
+func (info *stTarsTcpProxy) userLoginNotify(app uint32, uid uint64) {
+	if v, ok := info.outInfo.mapAppQueueObject[app]; ok && "" != v {
+		req := LoginNotifyReq{Uid: uid}
+		b, err := proto.Marshal(&req)
+		if err != nil {
+			common.Errorf("faile to Marshal msg.err: %v", err)
+			return
+		}
+		util.QueueSend(v, b, 1, uint32(ECmd_E_LOGIN_NOTIFY_REQ))
 	}
-	util.QueueSend("tars_gateway", b, 1, uint32(ECmd_E_LOGIN_NOTIFY_REQ))
 }
 
-func cacheFind(obj string, head *MsgHead, reqBody *MsgBody) (cacheKey string, rspBody []byte, err error) {
+func (info *stTarsTcpProxy) cacheFind(obj string, head *MsgHead, reqBody *MsgBody) (cacheKey string, rspBody []byte, err error) {
 	ha := md5.New()
 	ha.Write([]byte(fmt.Sprintf("%d%d%d%d%d%v%v", head.Version, head.BodyLen, head.App, head.Server, head.Servant, reqBody.Body, reqBody.Extend)))
 	cacheKey = base64.StdEncoding.EncodeToString(ha.Sum(nil))
@@ -545,7 +547,7 @@ func cacheFind(obj string, head *MsgHead, reqBody *MsgBody) (cacheKey string, rs
 	return cacheKey, nil, errors.New("not find")
 }
 
-func cacheAdd(obj, cacheKey string, msg []byte) (err error) {
+func (info *stTarsTcpProxy) cacheAdd(obj, cacheKey string, msg []byte) (err error) {
 	if err := util.CacheTcpAdd(obj, cacheKey, msg); nil != err {
 		common.Errorf("%v.%v", err, cacheKey)
 		return err

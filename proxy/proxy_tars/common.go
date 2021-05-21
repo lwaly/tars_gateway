@@ -20,14 +20,15 @@ type StServer struct {
 }
 
 type StApp struct {
-	Id        uint32     `json:"id,omitempty"`
-	Name      string     `json:"name,omitempty"`
-	Server    []StServer `json:"server,omitempty"`
-	Secret    string     `json:"secret,omitempty"`
-	RouteType int        `json:"routeType,omitempty"`
-	Switch    uint32     `json:"switch,omitempty"`    //1开启服务
-	BlackList []string   `json:"blackList,omitempty"` //
-	WhiteList []string   `json:"whiteList,omitempty"` //
+	Id            uint32     `json:"id,omitempty"`
+	Name          string     `json:"name,omitempty"`
+	Server        []StServer `json:"server,omitempty"`
+	Secret        string     `json:"secret,omitempty"`
+	RouteType     int        `json:"routeType,omitempty"`
+	Switch        uint32     `json:"switch,omitempty"`    //1开启服务
+	BlackList     []string   `json:"blackList,omitempty"` //
+	WhiteList     []string   `json:"whiteList,omitempty"` //
+	GatewayObject string     `json:"gatewayObject,omitempty"`
 }
 
 type StTarsProxy struct {
@@ -97,6 +98,7 @@ type StTarsProxyTcpCommon struct {
 	mapAppWhiteList    map[uint32][]string
 	mapServerWhiteList map[uint32]map[uint32][]string
 	mapSecret          map[uint32]string
+	mapAppQueueObject  map[uint32]string
 }
 
 func (info *StTarsProxyTcpCommon) InitProxy(key string) (err error) {
@@ -105,6 +107,7 @@ func (info *StTarsProxyTcpCommon) InitProxy(key string) (err error) {
 	info.mapApp = make(map[uint32]string)
 	info.mapServer = make(map[string]map[uint32]string)
 	info.mapSecret = make(map[uint32]string)
+	info.mapAppQueueObject = make(map[uint32]string)
 	info.mapAppBlackList = make(map[uint32][]string)
 	info.mapServerBlackList = make(map[uint32]map[uint32][]string)
 	info.mapAppWhiteList = make(map[uint32][]string)
@@ -151,6 +154,14 @@ func (info *StTarsProxyTcpCommon) reloadConf() (err error) {
 			info.mapSecret[value.Id] = info.Secret
 		} else {
 			info.mapSecret[value.Id] = ""
+		}
+	}
+
+	for _, value := range info.App {
+		if "" != value.GatewayObject && "empty" != value.GatewayObject {
+			info.mapAppQueueObject[value.Id] = value.GatewayObject
+		} else {
+			info.mapAppQueueObject[value.Id] = ""
 		}
 	}
 

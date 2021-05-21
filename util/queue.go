@@ -4,6 +4,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -16,31 +17,28 @@ import (
 )
 
 type stQueue struct {
-	Addr          string `json:"addr,omitempty"`
-	Cluster       string `json:"cluster,omitempty"`
-	Client        string `json:"client,omitempty"`
-	GroupObject   string `json:"groupObject,omitempty"`
-	Durable       string `json:"durable,omitempty"`
-	StartWay      string `json:"startWay,omitempty"`
-	GatewayObject string `json:"gatewayObject,omitempty"`
-	Machine       uint64 `json:"machine,omitempty"`
-	Switch        uint32 `json:"switch,omitempty"`
-	handlerQueue  HandlerQueueFunc
-	gConn         stan.Conn
-	startOpt      stan.SubscriptionOption
+	Addr         string `json:"addr,omitempty"`
+	Cluster      string `json:"cluster,omitempty"`
+	Client       string `json:"client,omitempty"`
+	GroupObject  string `json:"groupObject,omitempty"`
+	Durable      string `json:"durable,omitempty"`
+	StartWay     string `json:"startWay,omitempty"`
+	Machine      uint64 `json:"machine,omitempty"`
+	Switch       uint32 `json:"switch,omitempty"`
+	handlerQueue HandlerQueueFunc
+	gConn        stan.Conn
+	startOpt     stan.SubscriptionOption
+	mutex        sync.Mutex
 }
 
 var queue stQueue
 var seq uint32
+var mapQueue map[uint32]HandlerQueueFunc
 
 type HandlerQueueFunc func(b []byte)
 
-func InitQueue(handlerQueue HandlerQueueFunc) {
-	if nil == handlerQueue {
-		common.Warnf("handlerQueue nil.")
-		return
-	}
-
+func InitQueue() {
+	mapQueue = make(map[uint32]HandlerQueueFunc)
 	err := common.Conf.GetStruct("queue", &queue)
 	if err != nil {
 		common.Errorf("fail to parse Queue config.%v %v", err, queue)
@@ -56,8 +54,7 @@ func InitQueue(handlerQueue HandlerQueueFunc) {
 		queue.Machine = uint64(common.InetAton(net.ParseIP(common.GetExternal())))
 	}
 
-	queue.handlerQueue = handlerQueue
-	if "" == queue.Addr || "" == queue.Cluster || "" == queue.Client || "" == queue.GroupObject || "" == queue.Durable || "" == queue.StartWay || "" == queue.GatewayObject {
+	if "" == queue.Addr || "" == queue.Cluster || "" == queue.Client || "" == queue.GroupObject || "" == queue.Durable || "" == queue.StartWay {
 		common.Errorf("fail to get queue config.%v", queue)
 		return
 	}
@@ -127,6 +124,13 @@ func connectQueue() (err error) {
 	return
 }
 
+func QueueAddHandle(cmd uint32, handlerQueue HandlerQueueFunc) {
+	queue.mutex.Lock()
+	mapQueue[cmd] = handlerQueue
+	queue.mutex.Unlock()
+
+}
+
 func queueHandle(msg *stan.Msg) {
 	common.Infof("Sequence.%d", msg.Sequence)
 	input := protocol.Request{}
@@ -139,7 +143,15 @@ func queueHandle(msg *stan.Msg) {
 		if input.Uid == queue.Machine {
 			common.Infof("own msg")
 		} else {
-			queue.handlerQueue(input.GetBody())
+			queue.mutex.Lock()
+			v, ok := mapQueue[input.GetServant()]
+			queue.mutex.Unlock()
+			if ok && nil != v {
+				v(input.GetBody())
+			} else {
+				common.Errorf("error cmd.%v", input.GetServant())
+			}
+
 		}
 	}
 	msg.Ack()
